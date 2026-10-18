@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { GameArena } from './three/GameArena';
 import { useGameEngine } from './game/useGameEngine';
 import { CameraHandView } from './components/CameraHandView';
@@ -71,10 +71,10 @@ export default function App() {
   }, [attachArena]);
 
   // Handle incoming hand detection updates from CameraHandView
-  const handleHandsDetected = (hands: TrackedHand[]) => {
+  const handleHandsDetected = useCallback((hands: TrackedHand[]) => {
     setCurrentHands(hands);
     handleHandsUpdate(hands);
-  };
+  }, [handleHandsUpdate]);
 
   // Mouse move pointer fallback for realistic creature head & eye tracking
   useEffect(() => {

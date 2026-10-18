@@ -246,12 +246,6 @@ export class HandTrackerService {
     if (nowClock - this.lastFrameClockMs < 30) {
       return;
     }
-
-    const currentTime = this.videoElement.currentTime;
-    if (currentTime === this.lastVideoTime) {
-      return;
-    }
-    this.lastVideoTime = currentTime;
     this.lastFrameClockMs = nowClock;
 
     // Strictly monotonic timestamp required by MediaPipe
@@ -270,6 +264,8 @@ export class HandTrackerService {
       // Handle no hand detected
       if (!results || !results.landmarks || results.landmarks.length === 0) {
         this.reportStatus('no_hand', 'NO HAND DETECTED', true, 0, false);
+        this.smoothedHands.clear();
+        this.currentHoveredTarget = null;
         if (this.onHandsDetectedCallback) {
           this.onHandsDetectedCallback([]);
         }

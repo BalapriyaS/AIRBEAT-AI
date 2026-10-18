@@ -61,7 +61,15 @@ export const CameraHandView: React.FC<CameraHandViewProps> = ({
   const isDraggingRef = useRef<boolean>(false);
   const dragOffsetRef = useRef<{ x: number; y: number }>({ x: 0, y: 0 });
 
-  // Initialize camera and MediaPipe
+  // Stabilize callbacks in refs to prevent stream teardown on parent re-renders
+  const onHandsDetectedRef = useRef(onHandsDetected);
+  onHandsDetectedRef.current = onHandsDetected;
+  const onCameraStatusChangeRef = useRef(onCameraStatusChange);
+  onCameraStatusChangeRef.current = onCameraStatusChange;
+  const onTrackingStateChangeRef = useRef(onTrackingStateChange);
+  onTrackingStateChangeRef.current = onTrackingStateChange;
+
+  // Initialize camera and MediaPipe (Runs ONCE on mount)
   useEffect(() => {
     let isMounted = true;
 
@@ -120,7 +128,7 @@ export const CameraHandView: React.FC<CameraHandViewProps> = ({
 
           handTracker.setVideoSource(video);
           setCameraStatus('active');
-          if (onCameraStatusChange) onCameraStatusChange(true);
+          if (onCameraStatusChangeRef.current) onCameraStatusChangeRef.current(true);
 
           // Interaction unlock safeguard for strict browser autoplay policies
           const unlockVideo = () => {
@@ -136,13 +144,13 @@ export const CameraHandView: React.FC<CameraHandViewProps> = ({
         const aiReady = await handTracker.initializeModel((state) => {
           if (!isMounted) return;
           setTrackingState(state);
-          if (onTrackingStateChange) onTrackingStateChange(state);
+          if (onTrackingStateChangeRef.current) onTrackingStateChangeRef.current(state);
         });
 
         if (aiReady && isMounted) {
           handTracker.startTracking((hands) => {
             if (!isMounted) return;
-            onHandsDetected(hands);
+            onHandsDetectedRef.current(hands);
             renderHandOverlay(hands);
 
             // Trigger pinch ripple animation
@@ -162,7 +170,7 @@ export const CameraHandView: React.FC<CameraHandViewProps> = ({
               ? 'denied'
               : 'error';
           setCameraStatus(status);
-          if (onCameraStatusChange) onCameraStatusChange(false);
+          if (onCameraStatusChangeRef.current) onCameraStatusChangeRef.current(false);
           const stateErr: TrackingStateInfo = {
             status: status === 'denied' ? 'waiting_permission' : 'camera_unavailable',
             statusText:
@@ -172,7 +180,7 @@ export const CameraHandView: React.FC<CameraHandViewProps> = ({
             isPinching: false
           };
           setTrackingState(stateErr);
-          if (onTrackingStateChange) onTrackingStateChange(stateErr);
+          if (onTrackingStateChangeRef.current) onTrackingStateChangeRef.current(stateErr);
         }
       }
     }
@@ -187,7 +195,7 @@ export const CameraHandView: React.FC<CameraHandViewProps> = ({
         streamRef.current = null;
       }
     };
-  }, [onCameraStatusChange, onHandsDetected, onTrackingStateChange]);
+  }, []); // Run ONCE on mount so stream is never torn down by parent re-renders
 
   // Render hand landmark bones & glowing joints on canvas
   const renderHandOverlay = (hands: TrackedHand[]) => {
