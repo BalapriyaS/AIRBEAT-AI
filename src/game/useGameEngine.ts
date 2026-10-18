@@ -15,9 +15,9 @@ import { audioEngine } from '../audio/AudioEngine';
 import { GameArena } from '../three/GameArena';
 import { INSTRUMENTS, SUPER_ATTACKS } from './instrumentsConfig';
 
-const TOTAL_GAME_TIME = 180; // 3-minute round (180s)
+const TOTAL_GAME_TIME = 90; // Exactly 90-second round (01:30) as required
 
-// Rhythm Challenges Choreography Pools (Generous exhibition-friendly time limits)
+// Rhythm Challenges Choreography Pools (Snappy fast-paced arcade challenges)
 const CHOREOGRAPHY_ROUTINES: Record<string, Omit<RhythmChallenge, 'id'>[]> = {
   stage_1: [
     {
@@ -26,7 +26,7 @@ const CHOREOGRAPHY_ROUTINES: Record<string, Omit<RhythmChallenge, 'id'>[]> = {
       danceMove: 'drums_stomp',
       actionName: 'Rhythmic Stomp',
       points: 500,
-      timeLimit: 8.5
+      timeLimit: 3.2
     },
     {
       instruction: 'SHRED THE GUITAR FOR A ROCK HEADBANG!',
@@ -34,7 +34,7 @@ const CHOREOGRAPHY_ROUTINES: Record<string, Omit<RhythmChallenge, 'id'>[]> = {
       danceMove: 'guitar_headbang',
       actionName: 'Rock Headbang',
       points: 500,
-      timeLimit: 8.5
+      timeLimit: 3.2
     },
     {
       instruction: 'PLAY THE PIANO FOR A GRACEFUL SWAY!',
@@ -42,7 +42,7 @@ const CHOREOGRAPHY_ROUTINES: Record<string, Omit<RhythmChallenge, 'id'>[]> = {
       danceMove: 'piano_sway',
       actionName: 'Piano Sway',
       points: 500,
-      timeLimit: 8.5
+      timeLimit: 3.2
     },
     {
       instruction: 'BLOW THE TRUMPET FOR A BRASS STRUT!',
@@ -50,7 +50,7 @@ const CHOREOGRAPHY_ROUTINES: Record<string, Omit<RhythmChallenge, 'id'>[]> = {
       danceMove: 'trumpet_march',
       actionName: 'Fanfare March',
       points: 500,
-      timeLimit: 8.5
+      timeLimit: 3.2
     },
     {
       instruction: 'BOW THE VIOLIN FOR A 360 PIRUETTE!',
@@ -58,7 +58,7 @@ const CHOREOGRAPHY_ROUTINES: Record<string, Omit<RhythmChallenge, 'id'>[]> = {
       danceMove: 'violin_spin',
       actionName: 'Violin Pirouette',
       points: 500,
-      timeLimit: 8.5
+      timeLimit: 3.2
     },
     {
       instruction: 'DROP THE BASS TO BREAKDANCE!',
@@ -66,7 +66,7 @@ const CHOREOGRAPHY_ROUTINES: Record<string, Omit<RhythmChallenge, 'id'>[]> = {
       danceMove: 'dj_bassdrop',
       actionName: 'Breakdance Drop',
       points: 500,
-      timeLimit: 8.5
+      timeLimit: 3.2
     }
   ],
   stage_2: [
@@ -76,7 +76,7 @@ const CHOREOGRAPHY_ROUTINES: Record<string, Omit<RhythmChallenge, 'id'>[]> = {
       danceMove: 'drums_stomp',
       actionName: 'Cyber Stomp',
       points: 600,
-      timeLimit: 6.0
+      timeLimit: 2.4
     },
     {
       instruction: 'SYNTH DROP: POP & BREAKDANCE!',
@@ -84,7 +84,7 @@ const CHOREOGRAPHY_ROUTINES: Record<string, Omit<RhythmChallenge, 'id'>[]> = {
       danceMove: 'dj_bassdrop',
       actionName: 'Electro Pop',
       points: 600,
-      timeLimit: 6.0
+      timeLimit: 2.4
     },
     {
       instruction: 'GUITAR SOLO: POWER HEADBANG!',
@@ -92,7 +92,7 @@ const CHOREOGRAPHY_ROUTINES: Record<string, Omit<RhythmChallenge, 'id'>[]> = {
       danceMove: 'guitar_headbang',
       actionName: 'Power Riff',
       points: 600,
-      timeLimit: 6.0
+      timeLimit: 2.4
     },
     {
       instruction: 'VIOLIN WHIRL: GLIDING SPINS!',
@@ -100,7 +100,7 @@ const CHOREOGRAPHY_ROUTINES: Record<string, Omit<RhythmChallenge, 'id'>[]> = {
       danceMove: 'violin_spin',
       actionName: 'Gliding Spin',
       points: 600,
-      timeLimit: 6.0
+      timeLimit: 2.4
     },
     {
       instruction: 'PIANO CASCADE: FLUID FOOTWORK!',
@@ -108,7 +108,7 @@ const CHOREOGRAPHY_ROUTINES: Record<string, Omit<RhythmChallenge, 'id'>[]> = {
       danceMove: 'piano_sway',
       actionName: 'Fluid Footwork',
       points: 600,
-      timeLimit: 6.0
+      timeLimit: 2.4
     },
     {
       instruction: 'BRASS POP: TRIUMPHANT FANFARE!',
@@ -116,7 +116,7 @@ const CHOREOGRAPHY_ROUTINES: Record<string, Omit<RhythmChallenge, 'id'>[]> = {
       danceMove: 'trumpet_march',
       actionName: 'Triumphant March',
       points: 600,
-      timeLimit: 6.0
+      timeLimit: 2.4
     }
   ],
   stage_3: [
@@ -126,7 +126,7 @@ const CHOREOGRAPHY_ROUTINES: Record<string, Omit<RhythmChallenge, 'id'>[]> = {
       danceMove: 'dj_bassdrop',
       actionName: 'Hyper Drop',
       points: 800,
-      timeLimit: 4.8
+      timeLimit: 1.8
     },
     {
       instruction: 'THUNDER DRUMS: SEISMIC DOUBLE STOMP!',
@@ -134,7 +134,7 @@ const CHOREOGRAPHY_ROUTINES: Record<string, Omit<RhythmChallenge, 'id'>[]> = {
       danceMove: 'drums_stomp',
       actionName: 'Thunder Stomp',
       points: 800,
-      timeLimit: 4.8
+      timeLimit: 1.8
     },
     {
       instruction: 'ROCK OVERDRIVE: WILD HEADBANG!',
@@ -142,7 +142,7 @@ const CHOREOGRAPHY_ROUTINES: Record<string, Omit<RhythmChallenge, 'id'>[]> = {
       danceMove: 'guitar_headbang',
       actionName: 'Overdrive Riff',
       points: 800,
-      timeLimit: 4.8
+      timeLimit: 1.8
     },
     {
       instruction: 'ROYAL TRUMPET: FANFARE CHEST POP!',
@@ -150,7 +150,7 @@ const CHOREOGRAPHY_ROUTINES: Record<string, Omit<RhythmChallenge, 'id'>[]> = {
       danceMove: 'trumpet_march',
       actionName: 'Chest Pop Strut',
       points: 800,
-      timeLimit: 4.8
+      timeLimit: 1.8
     },
     {
       instruction: 'COSMIC VIOLIN: ULTRA PIRUETTE!',
@@ -158,7 +158,7 @@ const CHOREOGRAPHY_ROUTINES: Record<string, Omit<RhythmChallenge, 'id'>[]> = {
       danceMove: 'violin_spin',
       actionName: 'Cosmic Pirouette',
       points: 800,
-      timeLimit: 4.8
+      timeLimit: 1.8
     },
     {
       instruction: 'PIANO GLIDE: MASTER KEY RIFF!',
@@ -166,7 +166,7 @@ const CHOREOGRAPHY_ROUTINES: Record<string, Omit<RhythmChallenge, 'id'>[]> = {
       danceMove: 'piano_sway',
       actionName: 'Master Riff',
       points: 800,
-      timeLimit: 4.8
+      timeLimit: 1.8
     }
   ]
 };
@@ -263,11 +263,11 @@ export function useGameEngine() {
     arenaRef.current = arena;
   }, []);
 
-  // Update Rank Title helper
+  // Update Rank Title helper (calibrated for 90s round)
   const calculateRank = (score: number): string => {
-    if (score >= 32000) return 'Legendary Dance Master';
-    if (score >= 18000) return 'Sonic Superstar';
-    if (score >= 8000) return 'Beat Warrior';
+    if (score >= 16000) return 'Legendary Dance Master';
+    if (score >= 10000) return 'Sonic Superstar';
+    if (score >= 5000) return 'Beat Warrior';
     return 'Rhythm Rookie';
   };
 
@@ -328,8 +328,8 @@ export function useGameEngine() {
       const totalTime = challengeDurationRef.current * 1000;
 
       if (timeLeft <= 0) {
-        // TIME OUT: Counted as a missed beat
-        handleChallengeMiss('TOO SLOW! MISS');
+        // TIME OUT: Counted as a missed beat - handleChallengeMiss clears currentChallengeRef so this ONLY fires once!
+        handleChallengeMiss('TOO SLOW');
       } else {
         setChallengeProgress(Math.max(0, Math.min(1, timeLeft / totalTime)));
       }
@@ -340,46 +340,44 @@ export function useGameEngine() {
     };
   }, [stage]);
 
-  // Handle Miss / Stumble
-  const handleChallengeMiss = (reason: string = 'STUMBLE! MISS') => {
-    if (stageRef.current === 'stage_1_beat_eater') {
-      // In Stage 1: Forgiving transition to next routine so exhibition players are not penalized
-      setJudgmentFeedback({
-        rating: 'GREAT',
-        scoreAdd: 0,
-        text: 'SWITCHING BEAT! TRY THIS ONE!',
-        id: Date.now()
-      });
-      setTimeout(() => {
-        spawnNextChallenge();
-      }, 700);
-      return;
-    }
+  // Handle Miss / Stumble - Deduct points and trigger monster deflection
+  const handleChallengeMiss = (reason: string = 'TOO SLOW') => {
+    // 1. Immediately invalidate current challenge to prevent 50ms interval from repeatedly firing!
+    currentChallengeRef.current = null;
+    setCurrentChallenge(null);
+    setChallengeProgress(0);
 
     audioEngine.playMissSound();
 
     if (arenaRef.current) {
-      arenaRef.current.setDanceMove('missed_stumble', 1.6);
+      arenaRef.current.triggerMonsterDeflect();
     }
 
     setJudgmentFeedback({
       rating: 'MISS',
       scoreAdd: 0,
-      text: reason,
+      text: `⏱️ ${reason}!`,
       id: Date.now()
     });
 
-    setStats((prev) => ({
+    setStats((prev) => {
+      return {
+        ...prev,
+        combo: 1,
+        feverActive: false,
+        missCount: prev.missCount + 1
+      };
+    });
+
+    setMonster((prev) => ({
       ...prev,
-      combo: 1,
-      feverActive: false,
-      missCount: prev.missCount + 1
+      grooveLevel: Math.max(0, prev.grooveLevel - 2)
     }));
 
-    // Spawn next challenge with a brief pause
+    // Spawn next challenge cleanly
     setTimeout(() => {
       spawnNextChallenge();
-    }, 600);
+    }, 280);
   };
 
   // ==================== ATTACK / DANCE TRIGGER ====================
@@ -393,7 +391,7 @@ export function useGameEngine() {
         return;
       }
 
-      if (isPausedRef.current) return;
+      if (isPausedRef.current || statsRef.current.timeRemaining <= 0) return;
 
       const instConfig = INSTRUMENTS[instrumentId];
       const startCoord = customStart || instConfig.position;
@@ -447,16 +445,19 @@ export function useGameEngine() {
         const basePts = challenge.points;
         const hitPts = isPerfect ? basePts + 200 : basePts;
 
-        // Play positive chime
+        // Play positive chime and monster hit audio
         if (isPerfect) {
           audioEngine.playPerfectSound();
         } else {
           audioEngine.playGreatSound();
         }
+        audioEngine.playMonsterHitSound(false);
 
-        // Monster performs the choreographed dance move!
+        const colorHex = parseInt(instConfig.color.replace('#', '0x'), 16);
+
+        // Monster takes immediate hit reaction (recoil, flinch, emissive neon flash, particles)
         if (arenaRef.current) {
-          arenaRef.current.setDanceMove(challenge.danceMove, 2.4);
+          arenaRef.current.triggerMonsterHitReaction(colorHex, hitPts);
         }
 
         // Send visual energy projectile to center
@@ -484,17 +485,18 @@ export function useGameEngine() {
 
         if (isFever && !statsRef.current.feverActive) {
           audioEngine.playFeverSound();
-          if (arenaRef.current) {
-            arenaRef.current.setDanceMove('fever_dance', 2.8);
-          }
           setActivePrompt('🔥 FEVER DANCE ACTIVATED! 2.5X SCORE MULTIPLIER! 🔥');
-          setTimeout(() => setActivePrompt(null), 2500);
+          setTimeout(() => setActivePrompt(null), 2000);
         }
 
         setJudgmentFeedback({
           rating: isFever ? 'FEVER' : isPerfect ? 'PERFECT' : 'GREAT',
           scoreAdd: totalAddedScore,
-          text: isFever ? `FEVER! +${totalAddedScore}` : isPerfect ? `PERFECT! +${totalAddedScore}` : `GREAT! +${totalAddedScore}`,
+          text: isFever
+            ? `🔥 FEVER! +${totalAddedScore} PTS`
+            : isPerfect
+            ? `💥 HIT! +${totalAddedScore} PTS`
+            : `🎵 HIT! +${totalAddedScore} PTS`,
           id: Date.now()
         });
 
@@ -517,13 +519,55 @@ export function useGameEngine() {
         setSuperAttackGauge((prev) => Math.min(100, prev + 15));
         increaseGroove(isFever ? 22 : 16);
 
-        // Advance to next challenge after short musical beat
+        // Advance to next challenge quickly for snappy, energetic pacing
+        currentChallengeRef.current = null;
+        setCurrentChallenge(null);
         setTimeout(() => {
           spawnNextChallenge();
-        }, 400);
+        }, 120);
       } else if (challenge) {
-        // Player hit the WRONG instrument
-        handleChallengeMiss(`MISSED! REQUIRED: ${INSTRUMENTS[challenge.targetInstrument].name}`);
+        // Player clicked the WRONG instrument!
+        // Immediately consume challenge so no rapid duplicates occur
+        currentChallengeRef.current = null;
+        setCurrentChallenge(null);
+        setChallengeProgress(0);
+
+        const WRONG_PENALTY = 50;
+        audioEngine.playMissSound();
+
+        if (arenaRef.current) {
+          arenaRef.current.triggerMonsterDeflect();
+        }
+
+        // Deduct points, reset combo
+        setStats((prev) => {
+          const nextScore = Math.max(0, prev.score - WRONG_PENALTY);
+          return {
+            ...prev,
+            score: nextScore,
+            combo: 1,
+            feverActive: false,
+            missCount: prev.missCount + 1,
+            rankTitle: calculateRank(nextScore)
+          };
+        });
+
+        // Reduce monster groove
+        setMonster((prev) => ({
+          ...prev,
+          grooveLevel: Math.max(0, prev.grooveLevel - 2)
+        }));
+
+        setJudgmentFeedback({
+          rating: 'MISS',
+          scoreAdd: -WRONG_PENALTY,
+          text: `❌ WRONG BEAT! -${WRONG_PENALTY} PTS`,
+          id: Date.now()
+        });
+
+        setTimeout(() => {
+          spawnNextChallenge();
+        }, 280);
       } else {
         // Freestyle play outside of active challenge
         const danceMap: Record<InstrumentId, DanceMoveId> = {
@@ -561,7 +605,9 @@ export function useGameEngine() {
 
     if (arenaRef.current) {
       arenaRef.current.setDanceMove(superDanceMap[superId], 3.2);
+      arenaRef.current.triggerMonsterHitReaction(parseInt(config.color.replace('#', '0x'), 16), 1500);
     }
+    audioEngine.playMonsterHitSound(true);
 
     const attackEvent: AttackEvent = {
       id: Math.random().toString(),
@@ -846,9 +892,10 @@ export function useGameEngine() {
 
       if (isPausedRef.current) return;
 
-      // Process pinches
+      // Process hand triggers (single edge trigger only: pinch edge, air-tap, or dwell charge)
+      // Strictly prevents repeated activations from a single held pinch
       for (const hand of hands) {
-        if (hand.isPinching && hand.hoveredInstrument) {
+        if (hand.isTriggering && hand.hoveredInstrument) {
           const variation = Math.max(0, Math.min(1, hand.indexTip.y));
           triggerAttack(hand.hoveredInstrument, variation, {
             x: hand.indexTip.x,

@@ -6,3 +6,10 @@ coverage/
 *.log
 .env*
 !.env.example
+*.glb
+*.gltf
+*.bin
+*.task
+*.wasm
+public/models/
+public/wasm/

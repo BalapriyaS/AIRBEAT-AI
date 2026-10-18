@@ -9,6 +9,8 @@ import {
   GripHorizontal,
   Hand,
   HelpCircle,
+  Maximize2,
+  Minimize2,
   Move,
   RefreshCw,
   Sparkles,
@@ -61,6 +63,30 @@ export const CameraHandView: React.FC<CameraHandViewProps> = ({
   const isDraggingRef = useRef<boolean>(false);
   const dragOffsetRef = useRef<{ x: number; y: number }>({ x: 0, y: 0 });
 
+  // Camera Size State (Defaulting to 'large' per user request, with quick toggle)
+  const [cameraSize, setCameraSize] = useState<'compact' | 'large' | 'xlarge'>('large');
+
+  const toggleCameraSize = () => {
+    setCameraSize((curr) => {
+      if (curr === 'compact') return 'large';
+      if (curr === 'large') return 'xlarge';
+      return 'compact';
+    });
+  };
+
+  const getSizeClasses = () => {
+    switch (cameraSize) {
+      case 'compact':
+        return 'w-[220px] sm:w-[250px] md:w-[280px]';
+      case 'xlarge':
+        return 'w-[380px] sm:w-[460px] md:w-[540px]';
+      case 'large':
+      default:
+        // Generous, large high-definition camera preview
+        return 'w-[290px] sm:w-[350px] md:w-[420px]';
+    }
+  };
+
   // Stabilize callbacks in refs to prevent stream teardown on parent re-renders
   const onHandsDetectedRef = useRef(onHandsDetected);
   onHandsDetectedRef.current = onHandsDetected;
@@ -104,36 +130,29 @@ export const CameraHandView: React.FC<CameraHandViewProps> = ({
           video.setAttribute('webkit-playsinline', '');
           video.setAttribute('muted', '');
 
-          // Wait for video metadata to ensure dimensions are valid before play
-          await new Promise<void>((resolve) => {
-            if (video.readyState >= 2 && video.videoWidth > 0) {
-              resolve();
-            } else {
-              const onLoaded = () => {
-                video.removeEventListener('loadeddata', onLoaded);
-                video.removeEventListener('loadedmetadata', onLoaded);
-                resolve();
-              };
-              video.addEventListener('loadeddata', onLoaded);
-              video.addEventListener('loadedmetadata', onLoaded);
-              setTimeout(resolve, 800);
+          const startPlayback = async () => {
+            try {
+              await video.play();
+              setCameraStatus('active');
+              handTracker.setVideoSource(video);
+              if (onCameraStatusChangeRef.current) onCameraStatusChangeRef.current(true);
+            } catch (playErr) {
+              console.warn('[AIRBEAT AI] video.play() waiting for interaction:', playErr);
             }
-          });
+          };
 
-          try {
-            await video.play();
-          } catch (playErr) {
-            console.warn('[AIRBEAT AI] video.play() waiting for interaction:', playErr);
+          video.onloadedmetadata = () => startPlayback();
+          video.onloadeddata = () => startPlayback();
+          video.oncanplay = () => startPlayback();
+
+          if (video.readyState >= 2 && video.videoWidth > 0) {
+            startPlayback();
           }
-
-          handTracker.setVideoSource(video);
-          setCameraStatus('active');
-          if (onCameraStatusChangeRef.current) onCameraStatusChangeRef.current(true);
 
           // Interaction unlock safeguard for strict browser autoplay policies
           const unlockVideo = () => {
             if (video.paused) {
-              video.play().catch(() => {});
+              video.play().then(() => setCameraStatus('active')).catch(() => {});
             }
           };
           window.addEventListener('pointerdown', unlockVideo, { once: true });
@@ -152,13 +171,6 @@ export const CameraHandView: React.FC<CameraHandViewProps> = ({
             if (!isMounted) return;
             onHandsDetectedRef.current(hands);
             renderHandOverlay(hands);
-
-            // Trigger pinch ripple animation
-            for (const h of hands) {
-              if (h.isPinching) {
-                setLastPinchAnim({ x: h.indexTip.x, y: h.indexTip.y, time: Date.now() });
-              }
-            }
           });
         }
       } catch (err: unknown) {
@@ -261,20 +273,31 @@ export const CameraHandView: React.FC<CameraHandViewProps> = ({
 
       // Pinch line
       ctx.lineWidth = 2;
-      ctx.strokeStyle = hand.isPinching ? '#f59e0b' : 'rgba(255, 255, 255, 0.4)';
+      ctx.strokeStyle = hand.isPinching ? '#00D9FF' : 'rgba(22, 135, 255, 0.45)';
       ctx.beginPath();
       ctx.moveTo(idxX, idxY);
       ctx.lineTo(thbX, thbY);
       ctx.stroke();
 
       // Index and Thumb tip markers
-      ctx.fillStyle = hand.isPinching ? '#f59e0b' : '#06b6d4';
-      ctx.shadowColor = hand.isPinching ? '#f59e0b' : '#06b6d4';
+      ctx.fillStyle = hand.isPinching ? '#00D9FF' : '#1687FF';
+      ctx.shadowColor = hand.isPinching ? '#00D9FF' : '#1687FF';
       ctx.shadowBlur = 14;
 
       ctx.beginPath();
       ctx.arc(idxX, idxY, 7, 0, Math.PI * 2);
       ctx.fill();
+
+      // Trigger flash ring
+      if (hand.isTriggering || hand.isPinching) {
+        ctx.strokeStyle = '#00D9FF';
+        ctx.lineWidth = 3;
+        ctx.shadowColor = '#00D9FF';
+        ctx.shadowBlur = 18;
+        ctx.beginPath();
+        ctx.arc(idxX, idxY, 15, 0, Math.PI * 2);
+        ctx.stroke();
+      }
 
       ctx.beginPath();
       ctx.arc(thbX, thbY, 6, 0, Math.PI * 2);
@@ -339,11 +362,11 @@ export const CameraHandView: React.FC<CameraHandViewProps> = ({
       case 'top-right':
         return 'top-16 right-4';
       case 'bottom-right':
-        return 'bottom-16 right-4';
+        return 'bottom-3 right-4';
       case 'bottom-left':
       default:
-        // Positioned safely with generous clearance so it never covers Violin pad
-        return 'bottom-16 left-4';
+        // Positioned safely at bottom-left with generous clearance below Violin pad
+        return 'bottom-3 left-3';
     }
   };
 
@@ -357,7 +380,7 @@ export const CameraHandView: React.FC<CameraHandViewProps> = ({
             ? { left: `${customPosition.x}px`, top: `${customPosition.y}px` }
             : {}
         }
-        className={`fixed z-20 w-[200px] sm:w-[220px] md:w-[240px] aspect-4/3 rounded-xl overflow-hidden border border-cyan-500/60 bg-slate-950/95 shadow-2xl transition-all duration-200 ${
+        className={`fixed z-20 ${getSizeClasses()} aspect-video rounded-2xl overflow-hidden border-2 border-[#1687FF]/60 bg-[#111C2D]/95 shadow-[0_12px_40px_rgba(8,13,24,0.95)] transition-all duration-200 ${
           isVisible ? 'opacity-100 pointer-events-auto scale-100' : 'opacity-0 pointer-events-none scale-95'
         } ${getPositionClasses()}`}
       >
@@ -367,40 +390,40 @@ export const CameraHandView: React.FC<CameraHandViewProps> = ({
           playsInline
           muted
           autoPlay
-          className="w-full h-full object-cover transform -scale-x-100 bg-slate-950"
+          className="w-full h-full object-cover transform -scale-x-100"
         />
 
-        {/* Real-time Hand Skeleton Landmark Canvas Overlay */}
+        {/* Real-time Hand Skeleton Landmark Canvas Overlay (High Resolution 640x480) */}
         <canvas
           ref={canvasRef}
-          width={320}
-          height={240}
+          width={640}
+          height={480}
           className="absolute inset-0 w-full h-full pointer-events-none"
         />
 
         {/* Futuristic Corner Tech Accents */}
-        <div className="absolute top-0 left-0 w-3 h-3 border-t-2 border-l-2 border-cyan-400 pointer-events-none" />
-        <div className="absolute top-0 right-0 w-3 h-3 border-t-2 border-r-2 border-cyan-400 pointer-events-none" />
-        <div className="absolute bottom-0 left-0 w-3 h-3 border-b-2 border-l-2 border-cyan-400 pointer-events-none" />
-        <div className="absolute bottom-0 right-0 w-3 h-3 border-b-2 border-r-2 border-cyan-400 pointer-events-none" />
+        <div className="absolute top-0 left-0 w-4 h-4 border-t-2 border-l-2 border-[#00D9FF] pointer-events-none" />
+        <div className="absolute top-0 right-0 w-4 h-4 border-t-2 border-r-2 border-[#00D9FF] pointer-events-none" />
+        <div className="absolute bottom-0 left-0 w-4 h-4 border-b-2 border-l-2 border-[#00D9FF] pointer-events-none" />
+        <div className="absolute bottom-0 right-0 w-4 h-4 border-b-2 border-r-2 border-[#00D9FF] pointer-events-none" />
 
         {/* Draggable Title / Status Header Bar */}
         <div
           onPointerDown={handlePointerDown}
           onPointerMove={handlePointerMove}
           onPointerUp={handlePointerUp}
-          className="absolute top-1.5 left-1.5 right-1.5 flex items-center justify-between text-[10px] font-mono-tech px-2 py-0.5 rounded bg-black/85 backdrop-blur-xs border border-cyan-500/40 cursor-grab active:cursor-grabbing select-none"
+          className="absolute top-2 left-2 right-2 flex items-center justify-between text-[11px] font-mono-tech px-2.5 py-1 rounded-lg bg-[#080D18]/90 backdrop-blur-md border border-[#1687FF]/50 cursor-grab active:cursor-grabbing select-none shadow-md"
         >
-          <div className="flex items-center gap-1 text-cyan-300 truncate">
-            <GripHorizontal className="w-3 h-3 text-cyan-400/80 shrink-0" />
+          <div className="flex items-center gap-1.5 text-[#00D9FF] truncate">
+            <GripHorizontal className="w-3.5 h-3.5 text-[#00D9FF]/80 shrink-0" />
             <span
-              className={`truncate font-semibold tracking-wide ${
+              className={`truncate font-bold tracking-wide ${
                 trackingState.handsCount > 0
-                  ? 'text-emerald-400'
+                  ? 'text-[#00D9FF]'
                   : trackingState.status === 'pinch_detected'
-                  ? 'text-amber-300'
+                  ? 'text-[#00D9FF]'
                   : trackingState.isReady
-                  ? 'text-cyan-300'
+                  ? 'text-[#00D9FF]'
                   : 'text-rose-400'
               }`}
             >
@@ -409,22 +432,31 @@ export const CameraHandView: React.FC<CameraHandViewProps> = ({
           </div>
 
           <div className="flex items-center gap-1 shrink-0">
+            {/* Camera Size Toggle Button (Large / Extra Large / Compact) */}
+            <button
+              onClick={toggleCameraSize}
+              title={`Toggle Camera Size: Large / Extra-Large / Compact (Current: ${cameraSize.toUpperCase()})`}
+              className="p-1 text-slate-300 hover:text-[#00D9FF] rounded hover:bg-[#111C2D] transition-colors cursor-pointer"
+            >
+              {cameraSize === 'xlarge' ? <Minimize2 className="w-3.5 h-3.5" /> : <Maximize2 className="w-3.5 h-3.5" />}
+            </button>
+
             {/* Reposition preset cycle button */}
             <button
               onClick={cycleDockPreset}
               title={`Cycle Dock Corner (Current: ${dockPreset})`}
-              className="p-0.5 text-slate-400 hover:text-cyan-300 rounded hover:bg-slate-800 transition-colors cursor-pointer"
+              className="p-1 text-slate-300 hover:text-[#00D9FF] rounded hover:bg-[#111C2D] transition-colors cursor-pointer"
             >
-              <Move className="w-3 h-3" />
+              <Move className="w-3.5 h-3.5" />
             </button>
 
             {/* Hide Preview button */}
             <button
               onClick={onToggleVisible}
               title="Hide Webcam Preview (Hand gestures stay active)"
-              className="p-0.5 text-slate-400 hover:text-white rounded hover:bg-slate-800 transition-colors cursor-pointer"
+              className="p-1 text-slate-300 hover:text-white rounded hover:bg-[#111C2D] transition-colors cursor-pointer"
             >
-              <EyeOff className="w-3 h-3" />
+              <EyeOff className="w-3.5 h-3.5" />
             </button>
           </div>
         </div>
@@ -432,7 +464,7 @@ export const CameraHandView: React.FC<CameraHandViewProps> = ({
         {/* Pinch feedback ripple effect */}
         {lastPinchAnim && Date.now() - lastPinchAnim.time < 500 && (
           <div
-            className="absolute w-12 h-12 -ml-6 -mt-6 rounded-full border-2 border-amber-400 shadow-[0_0_15px_rgba(245,158,11,0.8)] animate-ping pointer-events-none"
+            className="absolute w-12 h-12 -ml-6 -mt-6 rounded-full border-2 border-[#00D9FF] shadow-[0_0_18px_rgba(0,217,255,0.85)] animate-ping pointer-events-none"
             style={{
               left: `${lastPinchAnim.x * 100}%`,
               top: `${lastPinchAnim.y * 100}%`

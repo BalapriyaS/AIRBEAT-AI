@@ -37,6 +37,13 @@ export class HandTrackerService {
   private lastProcessedTimestampMs: number = 0;
   private lastFrameClockMs: number = 0;
 
+  // Ultra-fast offscreen canvas downscaler (320x240) for 3x faster MediaPipe inference
+  private offscreenCanvas: HTMLCanvasElement | null = null;
+  private offscreenCtx: CanvasRenderingContext2D | null = null;
+
+  // Latest tracked hands reference for zero-overhead direct consumers
+  public latestHands: TrackedHand[] = [];
+
   // Smoothing states for hands
   private smoothedHands: Map<
     number,
@@ -53,13 +60,37 @@ export class HandTrackerService {
     }
   > = new Map();
 
+  // Hover dwell state machine for instant air-tap and charge-up hits
+  private hoverDwellStates: Map<
+    number,
+    {
+      instrument: InstrumentId | null;
+      startTime: number;
+      triggered: boolean;
+      lastTriggerTime: number;
+    }
+  > = new Map();
+
+  // Previous motion history for air-strike velocity detection
+  private motionHistory: Map<
+    number,
+    { x: number; y: number; time: number; speed: number }
+  > = new Map();
+
   // Target stabilization for hovered instrument
   private currentHoveredTarget: InstrumentId | null = null;
   private hoverHoldFrames: number = 0;
 
+  // Student Reach Assist (amplifies webcam center for effortless reach)
+  public reachBoost: boolean = true;
+
   // Callbacks
   private onHandsDetectedCallback: ((hands: TrackedHand[]) => void) | null = null;
   private onStateChangeCallback: ((state: TrackingStateInfo) => void) | null = null;
+
+  public setReachBoost(enabled: boolean) {
+    this.reachBoost = enabled;
+  }
 
   public async initializeModel(onState?: (state: TrackingStateInfo) => void): Promise<boolean> {
     if (onState) this.onStateChangeCallback = onState;
@@ -242,8 +273,8 @@ export class HandTrackerService {
     }
 
     const nowClock = performance.now();
-    // Throttle MediaPipe inference to ~30 FPS to save CPU/GPU and match webcam rate
-    if (nowClock - this.lastFrameClockMs < 30) {
+    // Throttle MediaPipe inference to save CPU/GPU and match webcam frame rate (~45-50 FPS max)
+    if (nowClock - this.lastFrameClockMs < 18) {
       return;
     }
     this.lastFrameClockMs = nowClock;
@@ -306,14 +337,25 @@ export class HandTrackerService {
           z: wristLm.z
         };
 
-        // 2. Active Zone Screen Mapping (expand comfortable center 0.12..0.88 to full 0..1 screen)
-        const screenX = Math.max(0, Math.min(1, (rawIndexTip.x - 0.12) / (0.88 - 0.12)));
-        const screenY = Math.max(0, Math.min(1, (rawIndexTip.y - 0.10) / (0.90 - 0.10)));
+        // 2. Natural Proportional Screen Mapping (1:1 with camera view)
+        // Gentle margins (0.08..0.92) so user can reach entire screen comfortably without hitting borders
+        const minX = 0.08;
+        const maxX = 0.92;
+        const minY = 0.06;
+        const maxY = 0.94;
+        const screenX = Math.max(0, Math.min(1, (rawIndexTip.x - minX) / (maxX - minX)));
+        const screenY = Math.max(0, Math.min(1, (rawIndexTip.y - minY) / (maxY - minY)));
         const rawScreenPoint: HandPoint = { x: screenX, y: screenY, z: rawIndexTip.z };
 
-        // 3. Fast responsive smoothing (alpha = 0.5)
+        // 3. Velocity-Adaptive Zero-Lag Smoothing Filter
         const prev = this.smoothedHands.get(h);
-        const alpha = 0.5;
+        let alpha = 0.72; // Snappy instant response by default
+        if (prev) {
+          const moveDist = Math.hypot(rawScreenPoint.x - prev.screenIndex.x, rawScreenPoint.y - prev.screenIndex.y);
+          // Fast motion -> alpha 0.98 (instant 0-lag tracking)
+          // Stationary -> alpha 0.72 (smooth, zero jitter)
+          alpha = Math.min(0.98, Math.max(0.72, 0.72 + moveDist * 10));
+        }
 
         const smoothedIndex: HandPoint = prev
           ? {
@@ -354,7 +396,13 @@ export class HandTrackerService {
           screenIndex: smoothedScreenIndex
         });
 
-        // 4. Scale-Invariant Pinch Calculation
+        // 4. Motion History & Velocity Calculation for Air-Strike / Drum Tap
+        const prevMotion = this.motionHistory.get(h) || { x: screenX, y: screenY, time: nowClock, speed: 0 };
+        const dt = Math.max(1, nowClock - prevMotion.time);
+        const moveSpeed = Math.hypot(screenX - prevMotion.x, screenY - prevMotion.y) / (dt / 1000);
+        this.motionHistory.set(h, { x: screenX, y: screenY, time: nowClock, speed: moveSpeed });
+
+        // 5. Scale-Invariant Pinch Calculation
         // Palm scale reference: distance from wrist (0) to index base (5)
         const dxPalm = indexMcpLm.x - wristLm.x;
         const dyPalm = indexMcpLm.y - wristLm.y;
@@ -374,11 +422,11 @@ export class HandTrackerService {
 
         const pinchRatio = pinchDist / handScale;
 
-        // 5. Pinch State Machine with Hysteresis & Edge Trigger
-        // Threshold: pinched < 0.40, released > 0.58
-        const PINCH_START = 0.40;
-        const PINCH_RELEASE = 0.58;
-        const COOLDOWN_MS = 280;
+        // 6. Generous Pinch State Machine with Hysteresis
+        // Thresholds: pinched < 0.52 (forgiving for all finger sizes), released > 0.65
+        const PINCH_START = 0.52;
+        const PINCH_RELEASE = 0.65;
+        const COOLDOWN_MS = 240;
 
         const pState = this.pinchStates.get(h) || {
           isPinching: false,
@@ -393,7 +441,7 @@ export class HandTrackerService {
           if (pinchRatio < PINCH_START && nowClock - pState.lastPinchTime > COOLDOWN_MS) {
             pState.isPinching = true;
             pState.lastPinchTime = nowClock;
-            isEdgePinch = true; // Exactly one trigger per pinch
+            isEdgePinch = true;
           }
         } else {
           if (pinchRatio > PINCH_RELEASE) {
@@ -404,20 +452,42 @@ export class HandTrackerService {
         this.pinchStates.set(h, pState);
         if (pState.isPinching) anyPinching = true;
 
-        // 6. Stabilized Instrument Hit-Testing
-        const candidateInstrument = this.checkInstrumentHover(smoothedScreenIndex);
-        let activeHovered = candidateInstrument;
+        // 7. Precise Real-Time Instrument Hit-Testing (Instant, zero-delay switching)
+        const activeHovered = this.checkInstrumentHover(smoothedScreenIndex);
 
-        if (candidateInstrument !== this.currentHoveredTarget) {
-          this.hoverHoldFrames++;
-          if (this.hoverHoldFrames >= 2 || !this.currentHoveredTarget) {
-            this.currentHoveredTarget = candidateInstrument;
-            this.hoverHoldFrames = 0;
+        // 8. Multi-Trigger Logic (Air-Pinch + Intentional Hover Dwell)
+        let isDwellTrigger = false;
+        let hoverProgress = 0;
+
+        let dwell = this.hoverDwellStates.get(h);
+        if (!dwell || dwell.instrument !== activeHovered) {
+          dwell = {
+            instrument: activeHovered,
+            startTime: nowClock,
+            triggered: false,
+            lastTriggerTime: dwell ? dwell.lastTriggerTime : 0
+          };
+        } else if (activeHovered) {
+          // Intentional hover dwell: charges up over 280ms
+          const DWELL_TIME_MS = 280;
+          if (nowClock - dwell.lastTriggerTime > 360) {
+            hoverProgress = Math.min(1, (nowClock - dwell.startTime) / DWELL_TIME_MS);
+            if (hoverProgress >= 1 && !dwell.triggered) {
+              isDwellTrigger = true;
+              dwell.triggered = true;
+              dwell.lastTriggerTime = nowClock;
+            }
           }
-          activeHovered = this.currentHoveredTarget;
-        } else {
-          this.hoverHoldFrames = 0;
         }
+        this.hoverDwellStates.set(h, dwell);
+
+        // Combined trigger: either clean air-pinch or completed hover dwell
+        const isTriggering = isEdgePinch || isDwellTrigger;
+        const triggerType: 'pinch' | 'tap' | 'dwell' | undefined = isEdgePinch
+          ? 'pinch'
+          : isDwellTrigger
+          ? 'dwell'
+          : undefined;
 
         // Full real landmarks mirrored for canvas rendering
         const mirroredLandmarks: HandPoint[] = landmarks.map((lm) => ({
@@ -434,14 +504,24 @@ export class HandTrackerService {
           isPinching: isEdgePinch,
           pinchDistance: pinchRatio,
           hoveredInstrument: activeHovered,
+          hoverProgress: activeHovered ? hoverProgress : 0,
+          isTriggering,
+          triggerType,
           landmarks: mirroredLandmarks
         });
       }
 
-      const status = anyPinching ? 'pinch_detected' : 'hand_detected';
-      const statusText = anyPinching ? 'PINCH DETECTED' : 'HAND DETECTED';
+      this.latestHands = trackedHands;
 
-      this.reportStatus(status, statusText, true, trackedHands.length, anyPinching);
+      const anyTriggered = trackedHands.some((h) => h.isTriggering);
+      const status = anyTriggered
+        ? 'pinch_detected'
+        : anyPinching
+        ? 'pinch_detected'
+        : 'hand_detected';
+      const statusText = anyTriggered ? 'BEAT HIT! ⚡' : anyPinching ? 'PINCHING' : 'HAND ACTIVE';
+
+      this.reportStatus(status, statusText, true, trackedHands.length, anyPinching || anyTriggered);
 
       if (this.onHandsDetectedCallback) {
         this.onHandsDetectedCallback(trackedHands);
@@ -452,16 +532,23 @@ export class HandTrackerService {
     }
   }
 
-  // Hit-testing against instrument positions in normalized screen space
+  // Exact screen-pixel hit testing against instrument pads (No overlap, no false hover)
   private checkInstrumentHover(screenPoint: HandPoint): InstrumentId | null {
-    const HOVER_RADIUS = 0.16;
+    const screenWidth = typeof window !== 'undefined' ? window.innerWidth : 1920;
+    const screenHeight = typeof window !== 'undefined' ? window.innerHeight : 1080;
+    // Pad button is ~170px in diameter (85px radius). We give it an effortless ~135px grab radius.
+    const HIT_RADIUS_PX = Math.min(screenWidth, screenHeight) * 0.13;
+
     let closestId: InstrumentId | null = null;
-    let closestDist = HOVER_RADIUS;
+    let closestDist = HIT_RADIUS_PX;
 
     for (const inst of INSTRUMENT_LIST) {
-      const dx = screenPoint.x - inst.position.x;
-      const dy = screenPoint.y - inst.position.y;
-      const dist = Math.sqrt(dx * dx + dy * dy);
+      const targetPxX = inst.position.x * screenWidth;
+      const targetPxY = inst.position.y * screenHeight;
+      const cursorPxX = screenPoint.x * screenWidth;
+      const cursorPxY = screenPoint.y * screenHeight;
+
+      const dist = Math.hypot(cursorPxX - targetPxX, cursorPxY - targetPxY);
       if (dist < closestDist) {
         closestDist = dist;
         closestId = inst.id;

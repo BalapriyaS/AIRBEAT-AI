@@ -35,7 +35,7 @@ export const CalibrationModal: React.FC<CalibrationModalProps> = ({
       setHasTestedHand(true);
     }
     for (const h of hands) {
-      if (h.isPinching) {
+      if (h.isPinching || h.isTriggering) {
         setHasTestedPinch(true);
         audioEngine.playInstrument('drums', 0.5);
       }
@@ -44,26 +44,26 @@ export const CalibrationModal: React.FC<CalibrationModalProps> = ({
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/85 backdrop-blur-md">
-      <div className="max-w-xl w-full bg-slate-900 border border-cyan-500/60 rounded-2xl p-6 shadow-2xl relative text-slate-100 flex flex-col items-center">
+      <div className="max-w-xl w-full bg-[#111C2D]/95 border-2 border-[#1687FF]/60 rounded-3xl p-6 shadow-2xl relative text-[#F1F5F9] flex flex-col items-center">
         {/* Close Button */}
         <button
           onClick={onClose}
-          className="absolute top-4 right-4 text-slate-400 hover:text-white p-1 rounded-lg hover:bg-slate-800 transition-colors cursor-pointer"
+          className="absolute top-4 right-4 text-slate-400 hover:text-[#00D9FF] p-1.5 rounded-lg hover:bg-[#080D18] transition-colors cursor-pointer"
         >
           <X className="w-5 h-5" />
         </button>
 
         {/* Header */}
-        <div className="flex items-center gap-2 mb-1 text-cyan-400 font-heading font-bold text-xl sm:text-2xl">
-          <Camera className="w-6 h-6 text-cyan-400" />
-          <span>HAND-TRACKING CALIBRATION</span>
+        <div className="flex items-center gap-2 mb-1 text-[#00D9FF] font-heading font-bold text-xl sm:text-2xl">
+          <Camera className="w-6 h-6 text-[#00D9FF]" />
+          <span>HAND-TRACKING OPTICAL CALIBRATION</span>
         </div>
         <p className="text-xs text-slate-400 mb-6 text-center font-mono-tech max-w-md">
-          Move your index finger to aim the cursor, then pinch your thumb and index finger together to strike!
+          Move your index finger to aim the cursor, then pinch thumb and index together to fire the trigger!
         </p>
 
         {/* Interactive Test Pad Area */}
-        <div className="w-full aspect-16/9 max-w-md bg-slate-950 border border-slate-700/80 rounded-xl relative overflow-hidden flex flex-col items-center justify-center p-4 mb-6 shadow-inner">
+        <div className="w-full aspect-16/9 max-w-md bg-[#080D18] border border-[#1687FF]/40 rounded-2xl relative overflow-hidden flex flex-col items-center justify-center p-4 mb-6 shadow-inner">
           {/* Cyber grid lines */}
           <div className="absolute inset-0 hologram-grid opacity-30 pointer-events-none" />
 
@@ -71,27 +71,27 @@ export const CalibrationModal: React.FC<CalibrationModalProps> = ({
           <div
             className={`w-28 h-28 rounded-full border-2 flex flex-col items-center justify-center transition-all duration-200 select-none ${
               hasTestedPinch
-                ? 'border-emerald-400 bg-emerald-950/40 shadow-[0_0_25px_rgba(52,211,153,0.5)] scale-110'
+                ? 'border-[#00D9FF] bg-[#00D9FF]/20 shadow-[0_0_25px_rgba(0,217,255,0.6)] scale-110'
                 : hands.length > 0
-                ? 'border-cyan-400 bg-cyan-950/30 animate-pulse'
-                : 'border-slate-700 bg-slate-900/60'
+                ? 'border-[#1687FF] bg-[#1687FF]/20 animate-pulse'
+                : 'border-slate-800 bg-[#111C2D]/60'
             }`}
           >
             <Zap
               className={`w-8 h-8 mb-1 ${
                 hasTestedPinch
-                  ? 'text-emerald-400'
+                  ? 'text-[#00D9FF]'
                   : hands.length > 0
-                  ? 'text-cyan-400'
-                  : 'text-slate-500'
+                  ? 'text-[#1687FF]'
+                  : 'text-slate-600'
               }`}
             />
-            <span className="text-[11px] font-heading font-bold tracking-wider text-slate-200">
+            <span className="text-[11px] font-heading font-bold tracking-wider text-[#F1F5F9]">
               {hasTestedPinch
-                ? 'PINCH SUCCESS!'
+                ? 'TRIGGER FIRED!'
                 : hands.length > 0
                 ? 'PINCH TO TEST'
-                : 'SHOW HAND'}
+                : 'RAISE HAND'}
             </span>
           </div>
 
@@ -108,8 +108,8 @@ export const CalibrationModal: React.FC<CalibrationModalProps> = ({
               <div
                 className={`w-6 h-6 rounded-full border-2 flex items-center justify-center ${
                   h.isPinching
-                    ? 'border-amber-400 bg-amber-400 shadow-[0_0_15px_rgba(251,191,36,0.9)] scale-125'
-                    : 'border-cyan-400 bg-cyan-400/40'
+                    ? 'border-[#00D9FF] bg-[#00D9FF] shadow-[0_0_15px_rgba(0,217,255,0.9)] scale-125'
+                    : 'border-[#1687FF] bg-[#1687FF]/40'
                 }`}
               >
                 <div className="w-1.5 h-1.5 bg-white rounded-full" />
@@ -119,52 +119,52 @@ export const CalibrationModal: React.FC<CalibrationModalProps> = ({
 
           {/* Tips banner if no hand */}
           {hands.length === 0 && (
-            <div className="absolute bottom-2 left-2 right-2 text-center text-[11px] font-mono-tech text-amber-300 bg-black/60 py-1 px-2 rounded border border-amber-500/30 flex items-center justify-center gap-1.5">
+            <div className="absolute bottom-2 left-2 right-2 text-center text-[11px] font-mono-tech text-[#00D9FF] bg-[#111C2D]/85 py-1 px-2 rounded border border-[#1687FF]/40 flex items-center justify-center gap-1.5">
               <AlertCircle className="w-3.5 h-3.5 shrink-0" />
-              <span>Raise your hand in front of the camera with good lighting</span>
+              <span>Raise your hand in front of the camera with standard lighting</span>
             </div>
           )}
         </div>
 
         {/* Real-time Checklist */}
         <div className="w-full max-w-md grid grid-cols-2 gap-2.5 mb-6 text-xs font-mono-tech">
-          <div className="flex items-center gap-2 p-2.5 rounded-lg bg-slate-950/70 border border-slate-800">
+          <div className="flex items-center gap-2 p-2.5 rounded-xl bg-[#080D18]/90 border border-[#1687FF]/30">
             {trackingInfo.isReady ? (
-              <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />
+              <CheckCircle2 className="w-4 h-4 text-[#00D9FF] shrink-0" />
             ) : (
-              <div className="w-4 h-4 rounded-full border border-slate-600 shrink-0" />
+              <div className="w-4 h-4 rounded-full border border-slate-700 shrink-0" />
             )}
-            <span className={trackingInfo.isReady ? 'text-emerald-300 font-semibold' : 'text-slate-400'}>
+            <span className={trackingInfo.isReady ? 'text-[#00D9FF] font-semibold' : 'text-slate-400'}>
               Camera Active
             </span>
           </div>
 
-          <div className="flex items-center gap-2 p-2.5 rounded-lg bg-slate-950/70 border border-slate-800">
+          <div className="flex items-center gap-2 p-2.5 rounded-xl bg-[#080D18]/90 border border-[#1687FF]/30">
             {hasTestedHand ? (
-              <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />
+              <CheckCircle2 className="w-4 h-4 text-[#00D9FF] shrink-0" />
             ) : (
-              <div className="w-4 h-4 rounded-full border border-slate-600 shrink-0" />
+              <div className="w-4 h-4 rounded-full border border-slate-700 shrink-0" />
             )}
-            <span className={hasTestedHand ? 'text-emerald-300 font-semibold' : 'text-slate-400'}>
+            <span className={hasTestedHand ? 'text-[#00D9FF] font-semibold' : 'text-slate-400'}>
               Hand Detected
             </span>
           </div>
 
-          <div className="flex items-center gap-2 p-2.5 rounded-lg bg-slate-950/70 border border-slate-800">
+          <div className="flex items-center gap-2 p-2.5 rounded-xl bg-[#080D18]/90 border border-[#1687FF]/30">
             {hasTestedPinch ? (
-              <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />
+              <CheckCircle2 className="w-4 h-4 text-[#00D9FF] shrink-0" />
             ) : (
-              <div className="w-4 h-4 rounded-full border border-slate-600 shrink-0" />
+              <div className="w-4 h-4 rounded-full border border-slate-700 shrink-0" />
             )}
-            <span className={hasTestedPinch ? 'text-emerald-300 font-semibold' : 'text-slate-400'}>
-              Pinch Recognized
+            <span className={hasTestedPinch ? 'text-[#00D9FF] font-semibold' : 'text-slate-400'}>
+              Pinch Edge Trigger
             </span>
           </div>
 
-          <div className="flex items-center gap-2 p-2.5 rounded-lg bg-slate-950/70 border border-slate-800">
-            <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />
-            <span className="text-emerald-300 font-semibold">
-              Mouse / Touch Fallback
+          <div className="flex items-center gap-2 p-2.5 rounded-xl bg-[#080D18]/90 border border-[#1687FF]/30">
+            <CheckCircle2 className="w-4 h-4 text-[#00D9FF] shrink-0" />
+            <span className="text-[#00D9FF] font-semibold">
+              Mouse / Keys 1-6 Ready
             </span>
           </div>
         </div>
@@ -176,10 +176,10 @@ export const CalibrationModal: React.FC<CalibrationModalProps> = ({
               onClose();
               onStartGame();
             }}
-            className="w-full py-3.5 rounded-xl bg-gradient-to-r from-cyan-500 via-blue-600 to-purple-600 hover:from-cyan-400 hover:to-purple-500 text-white font-heading font-bold text-base tracking-wider shadow-lg shadow-cyan-500/30 flex items-center justify-center gap-2 cursor-pointer transition-all transform hover:scale-105 active:scale-95"
+            className="w-full py-4 rounded-2xl bg-gradient-to-r from-[#1687FF] to-[#00D9FF] hover:from-[#1476e0] hover:to-[#00c4e6] text-[#080D18] font-arcade font-black text-base tracking-wider shadow-lg shadow-[#1687FF]/30 flex items-center justify-center gap-2 cursor-pointer transition-all hover:scale-[1.02] active:scale-[0.98]"
           >
-            <Play className="w-4 h-4 fill-current" />
-            <span>{hasTestedPinch ? 'START BATTLE NOW!' : 'READY • START BATTLE'}</span>
+            <Play className="w-4 h-4 fill-current text-[#080D18]" />
+            <span>{hasTestedPinch ? 'COMMENCE BATTLE NOW' : 'INITIALIZE BATTLE [START]'}</span>
           </button>
 
           <button
@@ -187,9 +187,9 @@ export const CalibrationModal: React.FC<CalibrationModalProps> = ({
               onClose();
               onStartGame();
             }}
-            className="w-full sm:w-auto px-4 py-3.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white font-mono-tech text-xs cursor-pointer whitespace-nowrap transition-colors flex items-center justify-center gap-1.5"
+            className="w-full sm:w-auto px-4 py-4 rounded-2xl bg-[#080D18] hover:bg-[#111C2D] border border-[#1687FF]/40 text-[#F1F5F9] font-mono-tech text-xs cursor-pointer whitespace-nowrap transition-colors flex items-center justify-center gap-1.5"
           >
-            <MousePointer className="w-3.5 h-3.5 text-cyan-400" />
+            <MousePointer className="w-3.5 h-3.5 text-[#00D9FF]" />
             <span>Play with Mouse</span>
           </button>
         </div>

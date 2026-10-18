@@ -2,73 +2,233 @@
 
 @layer base {
   body {
-    font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+    font-family: 'Outfit', 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
   }
   
   h1, h2, h3, .font-heading {
-    font-family: 'Chakra Petch', sans-serif;
+    font-family: 'Outfit', 'Chakra Petch', sans-serif;
+    letter-spacing: -0.02em;
+  }
+
+  .font-arcade {
+    font-family: 'Syne', 'Chakra Petch', sans-serif;
+    letter-spacing: -0.03em;
   }
   
   .font-mono-tech {
     font-family: 'Rajdhani', monospace, sans-serif;
+    letter-spacing: 0.05em;
   }
 }
 
-/* Custom holographic scanlines & glow effects */
-.hologram-grid {
+/* =========================================================================
+   PREMIUM NEON ARCADE × CYBER SCIENCE LAB THEME
+   Midnight navy: #080D18, Panel blue: #111C2D, Electric blue: #1687FF
+   Cyan: #00D9FF, Violet: #A78BFA, Off-white: #F1F5F9
+   ========================================================================= */
+
+/* Cyber Science Lab Arena Background */
+.concert-stage-bg {
+  background-color: #080D18;
   background-image: 
-    linear-gradient(rgba(0, 240, 255, 0.08) 1px, transparent 1px),
-    linear-gradient(90deg, rgba(0, 240, 255, 0.08) 1px, transparent 1px);
-  background-size: 32px 32px;
+    radial-gradient(circle at 50% 15%, rgba(22, 135, 255, 0.14) 0%, transparent 60%),
+    radial-gradient(circle at 15% 75%, rgba(0, 217, 255, 0.09) 0%, transparent 45%),
+    radial-gradient(circle at 85% 75%, rgba(167, 139, 250, 0.09) 0%, transparent 45%),
+    linear-gradient(180deg, rgba(8, 13, 24, 0.85) 0%, rgba(8, 13, 24, 0.98) 100%);
 }
 
-.scanlines {
-  background: linear-gradient(
-    rgba(18, 16, 38, 0) 50%, 
-    rgba(0, 0, 0, 0.25) 50%
+/* Precision Sci-Fi Panel */
+.cyber-panel {
+  background: rgba(17, 28, 45, 0.88);
+  border: 1px solid rgba(22, 135, 255, 0.35);
+  box-shadow: 0 8px 32px rgba(8, 13, 24, 0.85);
+  backdrop-filter: blur(12px);
+}
+
+/* Stage Lighting Spotlights */
+.spotlight-left {
+  background: conic-gradient(from 135deg at 10% 0%, rgba(22, 135, 255, 0.22) 0deg, transparent 45deg);
+}
+
+.spotlight-right {
+  background: conic-gradient(from 225deg at 90% 0%, rgba(167, 139, 250, 0.22) 0deg, transparent 45deg);
+}
+
+/* Speaker Mesh & Vinyl Textures */
+.speaker-grille {
+  background-image: radial-gradient(circle, rgba(255, 255, 255, 0.09) 1.5px, transparent 1.5px);
+  background-size: 8px 8px;
+}
+
+.vinyl-grooves {
+  background-image: repeating-radial-gradient(
+    circle at center,
+    rgba(255, 255, 255, 0.05) 0px,
+    rgba(255, 255, 255, 0.05) 1px,
+    transparent 2px,
+    transparent 5px
   );
-  background-size: 100% 4px;
 }
 
-@keyframes float-subtle {
-  0%, 100% { transform: translateY(0px); }
-  50% { transform: translateY(-6px); }
+/* Tactile 3D Arcade Push Button */
+.arcade-push-btn {
+  box-shadow: 
+    0 8px 0 rgba(0, 0, 0, 0.5),
+    0 12px 28px rgba(0, 0, 0, 0.6),
+    inset 0 2px 0 rgba(255, 255, 255, 0.45),
+    inset 0 -2px 0 rgba(0, 0, 0, 0.35);
+  transition: all 0.15s cubic-bezier(0.2, 0.8, 0.2, 1);
 }
 
-.animate-float {
-  animation: float-subtle 3s ease-in-out infinite;
+.arcade-push-btn:hover {
+  transform: translateY(-2px);
+  box-shadow: 
+    0 10px 0 rgba(0, 0, 0, 0.5),
+    0 16px 36px rgba(255, 75, 43, 0.4),
+    inset 0 2px 0 rgba(255, 255, 255, 0.6),
+    inset 0 -2px 0 rgba(0, 0, 0, 0.35);
 }
 
-@keyframes ring-expand {
-  0% { transform: scale(0.6); opacity: 0.9; }
-  100% { transform: scale(1.6); opacity: 0; }
+.arcade-push-btn:active {
+  transform: translateY(6px);
+  box-shadow: 
+    0 2px 0 rgba(0, 0, 0, 0.5),
+    0 4px 12px rgba(0, 0, 0, 0.4),
+    inset 0 1px 0 rgba(255, 255, 255, 0.3);
 }
 
-.animate-ring-expand {
-  animation: ring-expand 1.2s cubic-bezier(0.1, 0.8, 0.2, 1) infinite;
+/* Stamp Slam Animation for Result Rank Badge */
+@keyframes stamp-slam {
+  0% {
+    transform: scale(3.0) rotate(-18deg);
+    opacity: 0;
+  }
+  65% {
+    transform: scale(0.92) rotate(3deg);
+    opacity: 1;
+  }
+  82% {
+    transform: scale(1.06) rotate(-1deg);
+  }
+  100% {
+    transform: scale(1.0) rotate(0deg);
+  }
 }
 
-/* Neon glow helper utilities */
+.animate-stamp-slam {
+  animation: stamp-slam 0.65s cubic-bezier(0.18, 0.89, 0.32, 1.28) forwards;
+}
+
+/* Stage Lighting Sweep */
+@keyframes light-sweep {
+  0%, 100% {
+    opacity: 0.35;
+    transform: rotate(-8deg) scaleX(1);
+  }
+  50% {
+    opacity: 0.65;
+    transform: rotate(8deg) scaleX(1.15);
+  }
+}
+
+.animate-light-sweep {
+  animation: light-sweep 6s ease-in-out infinite alternate;
+}
+
+/* Shimmer Bar for Audio Visualizer */
+@keyframes eq-dance {
+  0%, 100% { height: 18%; }
+  30% { height: 85%; }
+  60% { height: 45%; }
+  85% { height: 100%; }
+}
+
+.animate-eq-1 { animation: eq-dance 0.7s ease-in-out infinite; }
+.animate-eq-2 { animation: eq-dance 0.9s ease-in-out infinite 0.15s; }
+.animate-eq-3 { animation: eq-dance 0.6s ease-in-out infinite 0.3s; }
+.animate-eq-4 { animation: eq-dance 0.8s ease-in-out infinite 0.1s; }
+.animate-eq-5 { animation: eq-dance 1.1s ease-in-out infinite 0.25s; }
+
+/* Metallic & Cyber Science Lab Gradient Typography */
+.text-cyber-cyan {
+  background: linear-gradient(180deg, #F1F5F9 0%, #00D9FF 100%);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  filter: drop-shadow(0 0 16px rgba(0, 217, 255, 0.6));
+}
+
+.text-cyber-blue {
+  background: linear-gradient(180deg, #00D9FF 0%, #1687FF 100%);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  filter: drop-shadow(0 0 16px rgba(22, 135, 255, 0.6));
+}
+
+.text-cyber-violet {
+  background: linear-gradient(180deg, #F1F5F9 0%, #A78BFA 100%);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  filter: drop-shadow(0 0 16px rgba(167, 139, 250, 0.6));
+}
+
+.text-cyber-white {
+  background: linear-gradient(180deg, #FFFFFF 0%, #E2E8F0 50%, #94A3B8 100%);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  filter: drop-shadow(0 2px 10px rgba(255, 255, 255, 0.4));
+}
+
+/* Legacy aliases mapped cleanly to Cyber Palette */
+.text-metallic-gold {
+  background: linear-gradient(180deg, #FFFFFF 0%, #00D9FF 60%, #1687FF 100%);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  filter: drop-shadow(0 0 18px rgba(0, 217, 255, 0.6));
+}
+
+.text-metallic-chrome {
+  background: linear-gradient(180deg, #ffffff 0%, #d8e2dc 35%, #8d99ae 70%, #edf2f4 100%);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  filter: drop-shadow(0 2px 10px rgba(255, 255, 255, 0.4));
+}
+
+.text-flame-neon {
+  background: linear-gradient(135deg, #00D9FF 0%, #1687FF 50%, #A78BFA 100%);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  filter: drop-shadow(0 0 16px rgba(0, 217, 255, 0.6));
+}
+
+/* Cyber Glow Helper Utilities */
 .glow-cyan {
-  box-shadow: 0 0 25px rgba(6, 182, 212, 0.6), inset 0 0 15px rgba(6, 182, 212, 0.3);
+  box-shadow: 0 0 25px rgba(0, 217, 255, 0.55), inset 0 0 15px rgba(0, 217, 255, 0.25);
+}
+
+.glow-blue {
+  box-shadow: 0 0 25px rgba(22, 135, 255, 0.55), inset 0 0 15px rgba(22, 135, 255, 0.25);
+}
+
+.glow-violet {
+  box-shadow: 0 0 25px rgba(167, 139, 250, 0.55), inset 0 0 15px rgba(167, 139, 250, 0.25);
 }
 
 .glow-magenta {
-  box-shadow: 0 0 25px rgba(236, 72, 153, 0.6), inset 0 0 15px rgba(236, 72, 153, 0.3);
+  box-shadow: 0 0 25px rgba(167, 139, 250, 0.55), inset 0 0 15px rgba(167, 139, 250, 0.25);
 }
 
 .glow-orange {
-  box-shadow: 0 0 25px rgba(249, 115, 22, 0.6), inset 0 0 15px rgba(249, 115, 22, 0.3);
+  box-shadow: 0 0 25px rgba(56, 189, 248, 0.55), inset 0 0 15px rgba(56, 189, 248, 0.25);
 }
 
 .glow-purple {
-  box-shadow: 0 0 25px rgba(168, 85, 247, 0.6), inset 0 0 15px rgba(168, 85, 247, 0.3);
+  box-shadow: 0 0 25px rgba(167, 139, 250, 0.55), inset 0 0 15px rgba(167, 139, 250, 0.25);
 }
 
 .glow-yellow {
-  box-shadow: 0 0 25px rgba(234, 179, 8, 0.6), inset 0 0 15px rgba(234, 179, 8, 0.3);
+  box-shadow: 0 0 25px rgba(96, 165, 250, 0.55), inset 0 0 15px rgba(96, 165, 250, 0.25);
 }
 
 .glow-green {
-  box-shadow: 0 0 25px rgba(34, 197, 94, 0.6), inset 0 0 15px rgba(34, 197, 94, 0.3);
+  box-shadow: 0 0 25px rgba(192, 132, 252, 0.55), inset 0 0 15px rgba(192, 132, 252, 0.25);
 }

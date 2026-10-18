@@ -92,6 +92,9 @@ export interface TrackedHand {
   isPinching: boolean;
   pinchDistance: number;
   hoveredInstrument: InstrumentId | null;
+  hoverProgress?: number; // 0..1 hover dwell charge progress for visual ring
+  isTriggering?: boolean; // True if triggered via air-tap, pinch, or dwell
+  triggerType?: 'pinch' | 'tap' | 'dwell';
   landmarks: HandPoint[];
 }
 
