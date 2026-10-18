@@ -217,6 +217,7 @@ export function useGameEngine() {
   const [superAttackGauge, setSuperAttackGauge] = useState<number>(35); // 0..100
   const [superAttackNotification, setSuperAttackNotification] = useState<string | null>(null);
   const [activePrompt, setActivePrompt] = useState<string | null>(null);
+  const [isPaused, setIsPaused] = useState<boolean>(false);
 
   // References to avoid stale closures in high-frequency callbacks
   const arenaRef = useRef<GameArena | null>(null);
@@ -227,6 +228,8 @@ export function useGameEngine() {
   const currentChallengeRef = useRef<RhythmChallenge | null>(null);
   const challengeEndTimeRef = useRef<number>(0);
   const challengeDurationRef = useRef<number>(4.0);
+  const isPausedRef = useRef<boolean>(false);
+  const pausedChallengeTimeLeftRef = useRef<number>(0);
 
   // Intervals & Timers
   const timerIntervalRef = useRef<number | null>(null);
@@ -248,6 +251,9 @@ export function useGameEngine() {
   useEffect(() => {
     superGaugeRef.current = superAttackGauge;
   }, [superAttackGauge]);
+  useEffect(() => {
+    isPausedRef.current = isPaused;
+  }, [isPaused]);
   useEffect(() => {
     currentChallengeRef.current = currentChallenge;
   }, [currentChallenge]);
@@ -316,7 +322,7 @@ export function useGameEngine() {
     }
 
     challengeTickRef.current = window.setInterval(() => {
-      if (!currentChallengeRef.current) return;
+      if (!currentChallengeRef.current || isPausedRef.current) return;
       const now = performance.now();
       const timeLeft = challengeEndTimeRef.current - now;
       const totalTime = challengeDurationRef.current * 1000;
@@ -372,6 +378,8 @@ export function useGameEngine() {
       ) {
         return;
       }
+
+      if (isPausedRef.current) return;
 
       const instConfig = INSTRUMENTS[instrumentId];
       const startCoord = customStart || instConfig.position;
@@ -763,6 +771,7 @@ export function useGameEngine() {
 
     if (timerIntervalRef.current) clearInterval(timerIntervalRef.current);
     timerIntervalRef.current = window.setInterval(() => {
+      if (isPausedRef.current) return;
       setStats((prev) => {
         if (prev.timeRemaining <= 1) {
           if (timerIntervalRef.current) clearInterval(timerIntervalRef.current);
@@ -774,10 +783,28 @@ export function useGameEngine() {
     }, 1000);
   };
 
+  const togglePause = useCallback(() => {
+    setIsPaused((prev) => {
+      const next = !prev;
+      isPausedRef.current = next;
+      const now = performance.now();
+      if (next) {
+        pausedChallengeTimeLeftRef.current = Math.max(0, challengeEndTimeRef.current - now);
+        audioEngine.stopBattleMusic();
+      } else {
+        challengeEndTimeRef.current = now + (pausedChallengeTimeLeftRef.current || 2000);
+        audioEngine.startBattleMusic();
+      }
+      return next;
+    });
+  }, []);
+
   const resetGame = () => {
     if (timerIntervalRef.current) clearInterval(timerIntervalRef.current);
     if (challengeTickRef.current) clearInterval(challengeTickRef.current);
     audioEngine.stopBattleMusic();
+    setIsPaused(false);
+    isPausedRef.current = false;
     startGame();
   };
 
@@ -792,6 +819,13 @@ export function useGameEngine() {
         return;
       }
 
+      // Forward hand position to arena for realistic creature head & eye tracking
+      if (hands.length > 0 && arenaRef.current) {
+        arenaRef.current.setTargetPointer(hands[0].indexTip.x, hands[0].indexTip.y);
+      }
+
+      if (isPausedRef.current) return;
+
       // Process pinches
       for (const hand of hands) {
         if (hand.isPinching && hand.hoveredInstrument) {
@@ -805,6 +839,13 @@ export function useGameEngine() {
     },
     [triggerAttack]
   );
+
+  // Set target pointer directly (for mouse tracking fallback)
+  const setPointerTarget = useCallback((x: number, y: number) => {
+    if (arenaRef.current) {
+      arenaRef.current.setTargetPointer(x, y);
+    }
+  }, []);
 
   // Cleanup
   useEffect(() => {
@@ -825,6 +866,9 @@ export function useGameEngine() {
     superAttackGauge,
     superAttackNotification,
     activePrompt,
+    isPaused,
+    togglePause,
+    setPointerTarget,
     attachArena,
     startGame,
     resetGame,

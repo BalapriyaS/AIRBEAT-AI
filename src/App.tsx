@@ -46,6 +46,9 @@ export default function App() {
     superAttackGauge,
     superAttackNotification,
     activePrompt,
+    isPaused,
+    togglePause,
+    setPointerTarget,
     attachArena,
     startGame,
     resetGame,
@@ -73,10 +76,27 @@ export default function App() {
     handleHandsUpdate(hands);
   };
 
-  // Keyboard shortcut fallback for testing / accessibility (1-6 for instruments)
+  // Mouse move pointer fallback for realistic creature head & eye tracking
+  useEffect(() => {
+    const handleMouseMove = (e: MouseEvent) => {
+      if (currentHands.length === 0) {
+        setPointerTarget(e.clientX / window.innerWidth, e.clientY / window.innerHeight);
+      }
+    };
+    window.addEventListener('mousemove', handleMouseMove);
+    return () => window.removeEventListener('mousemove', handleMouseMove);
+  }, [currentHands.length, setPointerTarget]);
+
+  // Keyboard shortcut fallback for testing / accessibility (1-6 for instruments, Space/Esc for pause)
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       if (stage === 'start_screen' || stage === 'victory' || stage === 'game_over') return;
+
+      if (e.key === ' ' || e.key === 'Escape') {
+        e.preventDefault();
+        togglePause();
+        return;
+      }
 
       const keyMap: Record<string, InstrumentId> = {
         '1': 'drums',
@@ -94,7 +114,7 @@ export default function App() {
 
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [stage, triggerAttack]);
+  }, [stage, triggerAttack, togglePause]);
 
   return (
     <div className="relative w-screen h-screen overflow-hidden bg-black select-none font-sans text-slate-100">
@@ -107,7 +127,7 @@ export default function App() {
       {/* 2. Real-time Hand Targeting Cursor Overlay (Zero React Tree overhead) */}
       <HandCursorOverlay hands={currentHands} isPinching={trackingState.isPinching} />
 
-      {/* 3. Top HUD: Score, Monster Groove Bar, Timer, Rhythm Challenge Banner */}
+      {/* 3. Top HUD: Score, Monster Groove Bar, Timer, Rhythm Challenge Banner & Pause */}
       {stage !== 'start_screen' && (
         <TopHUD
           stats={stats}
@@ -118,6 +138,9 @@ export default function App() {
           superAttackGauge={superAttackGauge}
           activePrompt={activePrompt}
           superAttackNotification={superAttackNotification}
+          isPaused={isPaused}
+          onTogglePause={togglePause}
+          onRestart={resetGame}
         />
       )}
 

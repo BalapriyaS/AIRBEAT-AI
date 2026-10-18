@@ -5,12 +5,15 @@ import { INSTRUMENT_LIST } from '../game/instrumentsConfig';
 export type TrackingStatus =
   | 'idle'
   | 'requesting_camera'
+  | 'initializing_camera'
   | 'loading_model'
   | 'camera_ready'
   | 'hand_detected'
   | 'no_hand'
   | 'pinch_detected'
   | 'tracking_error'
+  | 'waiting_permission'
+  | 'camera_unavailable'
   | 'mouse_mode';
 
 export interface TrackingStateInfo {

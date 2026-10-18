@@ -3,6 +3,12 @@ import { RoomEnvironment } from 'three/examples/jsm/environments/RoomEnvironment
 import { AttackEvent, DanceMoveId, InstrumentId, SuperAttackId } from '../types/game';
 import { INSTRUMENTS } from '../game/instrumentsConfig';
 
+/**
+ * AIRBEAT AI - Professional 3D Game Arena & Cinematic Realistic Creature
+ * Implements a detailed, lifelike bio-mechanical creature with procedural scale normals,
+ * anatomical skull, realistic predatory eyes, articulated blinking eyelids, breathing ribcage,
+ * sculpted muscular limbs, raptor talons, multi-jointed tail, and beat-synchronized dance animations.
+ */
 export class GameArena {
   private container: HTMLElement;
   private scene: THREE.Scene;
@@ -10,47 +16,61 @@ export class GameArena {
   private renderer: THREE.WebGLRenderer;
   private clock: THREE.Clock;
 
-  // Arena elements
+  // Arena & Lighting
+  private stageGroup: THREE.Group;
   private floorGrid!: THREE.GridHelper;
   private floorPlane!: THREE.Mesh;
-  private stageGroup: THREE.Group;
   private keyLight!: THREE.DirectionalLight;
   private fillLight!: THREE.HemisphereLight;
   private rimLight!: THREE.PointLight;
   private strobeLight!: THREE.PointLight;
 
-  // Monster Group & Articulated Skeletal Hierarchy
+  // Realistic Creature Hierarchy
   private monsterGroup: THREE.Group;
-  private beatEaterGroup: THREE.Group | null = null;
-  private rhythmBreakerGroup: THREE.Group | null = null;
-  private bossGroup: THREE.Group | null = null;
+  private creatureRoot!: THREE.Group;
+  private pelvisGroup!: THREE.Group;
+  private spineGroup!: THREE.Group;
+  private chestGroup!: THREE.Group;
+  private neckGroup!: THREE.Group;
+  private headGroup!: THREE.Group;
+  private lowerJawGroup!: THREE.Group;
+  private upperEyelidL!: THREE.Mesh;
+  private upperEyelidR!: THREE.Mesh;
+  private eyeOrbL!: THREE.Mesh;
+  private eyeOrbR!: THREE.Mesh;
+  private hornsGroup!: THREE.Group;
+  private tongueMesh!: THREE.Mesh;
+  private coreReactor!: THREE.Mesh;
+  private dorsalPlates: THREE.Mesh[] = [];
 
-  // Articulated Dancer Limbs (for Beat Eater & Groove Monsters)
-  private dancerSpine!: THREE.Group;
-  private dancerHead!: THREE.Group;
-  private dancerVisor!: THREE.Mesh;
-  private dancerJaw!: THREE.Mesh;
-  private dancerCore!: THREE.Mesh;
-  private dancerLeftArm!: THREE.Group;
-  private dancerRightArm!: THREE.Group;
-  private dancerLeftForearm!: THREE.Group;
-  private dancerRightForearm!: THREE.Group;
-  private dancerLeftHand!: THREE.Group;
-  private dancerRightHand!: THREE.Group;
-  private dancerLeftLeg!: THREE.Group;
-  private dancerRightLeg!: THREE.Group;
-  private dancerLeftFoot!: THREE.Mesh;
-  private dancerRightFoot!: THREE.Mesh;
+  // Limbs
+  private leftClavicle!: THREE.Group;
+  private rightClavicle!: THREE.Group;
+  private leftUpperArm!: THREE.Group;
+  private rightUpperArm!: THREE.Group;
+  private leftForearm!: THREE.Group;
+  private rightForearm!: THREE.Group;
+  private leftHandGroup!: THREE.Group;
+  private rightHandGroup!: THREE.Group;
+
+  private leftThighGroup!: THREE.Group;
+  private rightThighGroup!: THREE.Group;
+  private leftShinGroup!: THREE.Group;
+  private rightShinGroup!: THREE.Group;
+  private leftFootMesh!: THREE.Group;
+  private rightFootMesh!: THREE.Group;
+
+  // Tail segments
+  private tailSegments: THREE.Group[] = [];
 
   // Rhythm Breaker shield & rune
   private rhythmShield: THREE.Group | null = null;
   private rhythmRuneMesh: THREE.Mesh | null = null;
 
-  // Boss armor & orbital rings
-  private bossArmorParts: THREE.Object3D[] = [];
+  // Boss orbital rings
   private bossOrbitRings: THREE.Mesh[] = [];
 
-  // Projectiles & Particles
+  // Projectiles & Particle System
   private activeProjectiles: {
     mesh: THREE.Object3D;
     type: InstrumentId | SuperAttackId;
@@ -75,26 +95,37 @@ export class GameArena {
   private animationFrameId: number | null = null;
   private isDestroyed: boolean = false;
 
-  // Math helpers (Zero GC)
+  // Head and Eye Tracking
+  private pointerTarget: THREE.Vector2 = new THREE.Vector2(0.5, 0.5);
+  private currentHeadYaw: number = 0;
+  private currentHeadPitch: number = 0;
+  private blinkTimer: number = 0;
+  private isBlinking: boolean = false;
+
+  // Math helpers
   private readonly _v1 = new THREE.Vector3();
 
   constructor(container: HTMLElement) {
     this.container = container;
     this.clock = new THREE.Clock();
 
-    // 1. Scene & Camera Setup (Framed to show entire monster head to toe)
+    // 1. Scene & Camera Setup
     this.scene = new THREE.Scene();
-    this.scene.background = new THREE.Color(0x05060d);
-    this.scene.fog = new THREE.FogExp2(0x05060d, 0.035);
+    this.scene.background = new THREE.Color(0x04060d);
+    this.scene.fog = new THREE.FogExp2(0x04060d, 0.038);
 
     const width = container.clientWidth || window.innerWidth;
     const height = container.clientHeight || window.innerHeight;
-    this.camera = new THREE.PerspectiveCamera(42, width / height, 0.1, 100);
-    this.camera.position.set(0, 1.8, 8.8);
+    this.camera = new THREE.PerspectiveCamera(40, width / height, 0.1, 100);
+    this.camera.position.set(0, 1.85, 8.5);
     this.camera.lookAt(0, 1.35, 0);
 
     // 2. Renderer setup
-    this.renderer = new THREE.WebGLRenderer({ antialias: true, alpha: false, powerPreference: 'high-performance' });
+    this.renderer = new THREE.WebGLRenderer({
+      antialias: true,
+      alpha: false,
+      powerPreference: 'high-performance'
+    });
     this.renderer.setSize(width, height);
     this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
     this.renderer.outputColorSpace = THREE.SRGBColorSpace;
@@ -105,7 +136,7 @@ export class GameArena {
 
     container.appendChild(this.renderer.domElement);
 
-    // 3. Mandatory Studio Environment Reflection
+    // 3. Studio Environment Reflection
     const pmremGenerator = new THREE.PMREMGenerator(this.renderer);
     this.scene.environment = pmremGenerator.fromScene(new RoomEnvironment(), 0.04).texture;
     pmremGenerator.dispose();
@@ -118,7 +149,7 @@ export class GameArena {
     this.scene.add(this.stageGroup);
     this.setupStage();
 
-    // 6. Monster Container
+    // 6. Monster Group & Creature
     this.monsterGroup = new THREE.Group();
     this.monsterGroup.position.set(0, 0, 0);
     this.scene.add(this.monsterGroup);
@@ -129,12 +160,11 @@ export class GameArena {
     this.particleLifespans = new Float32Array(this.MAX_PARTICLES);
     this.setupParticleSystem();
 
-    // 8. Build Full-Body Articulated Dancing Monster Models
-    this.buildDancingBeatEater();
-    this.buildRhythmBreaker();
-    this.buildMusicDestroyer();
+    // 8. Build Realistic Creature & Stage Boss Props
+    this.buildRealisticCreature();
+    this.buildRhythmBreakerProps();
+    this.buildMusicDestroyerProps();
 
-    // Show initial monster
     this.setStage('stage_1_beat_eater');
 
     // 9. Resize Listener & Pre-warm
@@ -145,51 +175,227 @@ export class GameArena {
     this.animate();
   }
 
+  // ==================== PROCEDURAL TEXTURES GENERATION ====================
+  /**
+   * Generates realistic procedural normal & roughness map for reptilian scutes & cyber-chitin skin
+   */
+  private generateScaleTextures(): { normalMap: THREE.CanvasTexture; roughnessMap: THREE.CanvasTexture } {
+    const size = 512;
+    const canvasN = document.createElement('canvas');
+    canvasN.width = size;
+    canvasN.height = size;
+    const ctxN = canvasN.getContext('2d')!;
+
+    const canvasR = document.createElement('canvas');
+    canvasR.width = size;
+    canvasR.height = size;
+    const ctxR = canvasR.getContext('2d')!;
+
+    const imgDataN = ctxN.createImageData(size, size);
+    const imgDataR = ctxR.createImageData(size, size);
+    const dataN = imgDataN.data;
+    const dataR = imgDataR.data;
+
+    // Height array for Sobel filter
+    const height = new Float32Array(size * size);
+
+    // Voronoi-like cellular scute height pattern
+    const cells = 36;
+    const points: [number, number][] = [];
+    for (let i = 0; i < cells; i++) {
+      points.push([Math.random() * size, Math.random() * size]);
+    }
+
+    for (let y = 0; y < size; y++) {
+      for (let x = 0; x < size; x++) {
+        let d1 = 999999;
+        let d2 = 999999;
+        for (let i = 0; i < cells; i++) {
+          const dx = x - points[i][0];
+          const dy = y - points[i][1];
+          const d = dx * dx + dy * dy;
+          if (d < d1) {
+            d2 = d1;
+            d1 = d;
+          } else if (d < d2) {
+            d2 = d;
+          }
+        }
+        const dist1 = Math.sqrt(d1);
+        const dist2 = Math.sqrt(d2);
+        const cellEdge = Math.max(0, Math.min(1, (dist2 - dist1) / 12));
+        // Add subtle micro pore noise
+        const micro = (Math.sin(x * 0.4) * Math.cos(y * 0.4) + 1) * 0.08;
+        height[y * size + x] = cellEdge * 0.85 + micro;
+      }
+    }
+
+    // Sobel normal map computation
+    for (let y = 0; y < size; y++) {
+      for (let x = 0; x < size; x++) {
+        const left = height[y * size + ((x - 1 + size) % size)];
+        const right = height[y * size + ((x + 1) % size)];
+        const up = height[((y - 1 + size) % size) * size + x];
+        const down = height[((y + 1) % size) * size + x];
+
+        const dx = (right - left) * 2.5;
+        const dy = (down - up) * 2.5;
+        const dz = 1.0;
+
+        const len = Math.sqrt(dx * dx + dy * dy + dz * dz);
+        const nx = dx / len;
+        const ny = dy / len;
+        const nz = dz / len;
+
+        const idx = (y * size + x) * 4;
+        dataN[idx] = Math.round((nx * 0.5 + 0.5) * 255);
+        dataN[idx + 1] = Math.round((ny * 0.5 + 0.5) * 255);
+        dataN[idx + 2] = Math.round((nz * 0.5 + 0.5) * 255);
+        dataN[idx + 3] = 255;
+
+        // Roughness: scale center is slick (0.2), crevices are rough (0.85)
+        const hVal = height[y * size + x];
+        const rough = Math.round((1.0 - hVal * 0.7) * 255);
+        dataR[idx] = rough;
+        dataR[idx + 1] = rough;
+        dataR[idx + 2] = rough;
+        dataR[idx + 3] = 255;
+      }
+    }
+
+    ctxN.putImageData(imgDataN, 0, 0);
+    ctxR.putImageData(imgDataR, 0, 0);
+
+    const normalMap = new THREE.CanvasTexture(canvasN);
+    normalMap.wrapS = THREE.RepeatWrapping;
+    normalMap.wrapT = THREE.RepeatWrapping;
+    normalMap.repeat.set(4, 4);
+
+    const roughnessMap = new THREE.CanvasTexture(canvasR);
+    roughnessMap.wrapS = THREE.RepeatWrapping;
+    roughnessMap.wrapT = THREE.RepeatWrapping;
+    roughnessMap.repeat.set(4, 4);
+
+    return { normalMap, roughnessMap };
+  }
+
+  /**
+   * Generates a realistic predatory eye texture with radiant iris & vertical slit pupil
+   */
+  private generatePredatorEyeTexture(): THREE.CanvasTexture {
+    const size = 256;
+    const canvas = document.createElement('canvas');
+    canvas.width = size;
+    canvas.height = size;
+    const ctx = canvas.getContext('2d')!;
+
+    const cx = size / 2;
+    const cy = size / 2;
+    const r = size / 2 - 4;
+
+    // 1. Sclera with subtle dark rim
+    const gradSclera = ctx.createRadialGradient(cx, cy, r * 0.6, cx, cy, r);
+    gradSclera.addColorStop(0, '#1a1e29');
+    gradSclera.addColorStop(1, '#05070a');
+    ctx.fillStyle = gradSclera;
+    ctx.beginPath();
+    ctx.arc(cx, cy, r, 0, Math.PI * 2);
+    ctx.fill();
+
+    // 2. Limbal ring & glowing iris (Amber & Cyan bioluminescence)
+    const irisR = r * 0.85;
+    const gradIris = ctx.createRadialGradient(cx, cy, 10, cx, cy, irisR);
+    gradIris.addColorStop(0, '#fef08a'); // inner glow
+    gradIris.addColorStop(0.3, '#f59e0b'); // amber
+    gradIris.addColorStop(0.7, '#06b6d4'); // electric cyan striation
+    gradIris.addColorStop(0.95, '#0284c7'); // dark cerulean
+    gradIris.addColorStop(1.0, '#030712'); // black limbal ring
+
+    ctx.fillStyle = gradIris;
+    ctx.beginPath();
+    ctx.arc(cx, cy, irisR, 0, Math.PI * 2);
+    ctx.fill();
+
+    // 3. Radial muscle fiber rays
+    ctx.strokeStyle = 'rgba(255, 255, 255, 0.25)';
+    ctx.lineWidth = 1.2;
+    for (let a = 0; a < Math.PI * 2; a += 0.1) {
+      ctx.beginPath();
+      ctx.moveTo(cx + Math.cos(a) * (irisR * 0.2), cy + Math.sin(a) * (irisR * 0.2));
+      ctx.lineTo(cx + Math.cos(a) * (irisR * 0.9), cy + Math.sin(a) * (irisR * 0.9));
+      ctx.stroke();
+    }
+
+    // 4. Vertical slit predator pupil
+    ctx.fillStyle = '#000000';
+    ctx.beginPath();
+    ctx.ellipse(cx, cy, irisR * 0.18, irisR * 0.72, 0, 0, Math.PI * 2);
+    ctx.fill();
+
+    // 5. Specular gleam
+    ctx.fillStyle = 'rgba(255, 255, 255, 0.85)';
+    ctx.beginPath();
+    ctx.arc(cx - irisR * 0.25, cy - irisR * 0.3, 8, 0, Math.PI * 2);
+    ctx.fill();
+
+    const tex = new THREE.CanvasTexture(canvas);
+    tex.colorSpace = THREE.SRGBColorSpace;
+    return tex;
+  }
+
+  // ==================== LIGHTING SETUP ====================
   private setupLighting() {
-    this.keyLight = new THREE.DirectionalLight(0xfff5e6, 2.6);
-    this.keyLight.position.set(4, 8, 6);
+    this.keyLight = new THREE.DirectionalLight(0xfff5e6, 2.8);
+    this.keyLight.position.set(4, 9, 6);
     this.keyLight.castShadow = true;
     this.keyLight.shadow.mapSize.width = 1024;
     this.keyLight.shadow.mapSize.height = 1024;
-    this.keyLight.shadow.camera.near = 0.5;
-    this.keyLight.shadow.camera.far = 25;
-    this.keyLight.shadow.bias = -0.0005;
+    this.keyLight.shadow.bias = -0.0004;
     this.scene.add(this.keyLight);
 
-    this.fillLight = new THREE.HemisphereLight(0x06b6d4, 0x1e1035, 1.2);
+    this.fillLight = new THREE.HemisphereLight(0x06b6d4, 0x1b1130, 1.3);
     this.scene.add(this.fillLight);
 
-    this.rimLight = new THREE.PointLight(0xa855f7, 3.5, 15);
-    this.rimLight.position.set(0, 4, -4);
+    this.rimLight = new THREE.PointLight(0xd946ef, 3.8, 16);
+    this.rimLight.position.set(0, 4.5, -4.2);
     this.scene.add(this.rimLight);
 
-    this.strobeLight = new THREE.PointLight(0x00f0ff, 0, 20);
-    this.strobeLight.position.set(0, 2, 2);
+    this.strobeLight = new THREE.PointLight(0x00f0ff, 0, 22);
+    this.strobeLight.position.set(0, 2.2, 2.5);
     this.scene.add(this.strobeLight);
   }
 
+  // ==================== STAGE SETUP ====================
   private setupStage() {
-    // Floor platform with neon edge
-    const stageGeo = new THREE.CylinderGeometry(5.2, 5.5, 0.4, 48);
+    // Octagonal concert stage platform with metallic brushed titanium edge
+    const stageGeo = new THREE.CylinderGeometry(5.4, 5.8, 0.45, 8);
     const stageMat = new THREE.MeshStandardMaterial({
-      color: 0x0c0f1d,
-      roughness: 0.35,
-      metalness: 0.85
+      color: 0x0a0d18,
+      roughness: 0.28,
+      metalness: 0.9
     });
     const stageBase = new THREE.Mesh(stageGeo, stageMat);
-    stageBase.position.y = -0.2;
+    stageBase.position.y = -0.225;
     stageBase.receiveShadow = true;
     this.stageGroup.add(stageBase);
 
-    // Neon edge ring
-    const ringGeo = new THREE.TorusGeometry(5.3, 0.06, 16, 64);
+    // Glowing Neon Edge Ring
+    const ringGeo = new THREE.TorusGeometry(5.45, 0.05, 16, 64);
     const ringMat = new THREE.MeshBasicMaterial({ color: 0x06b6d4 });
     const ringMesh = new THREE.Mesh(ringGeo, ringMat);
     ringMesh.rotation.x = Math.PI / 2;
     ringMesh.position.y = 0.01;
     this.stageGroup.add(ringMesh);
 
-    // Holographic cyber grid
+    // Inner concentric amber glow ring
+    const ringInnerGeo = new THREE.TorusGeometry(3.6, 0.03, 16, 48);
+    const ringInnerMat = new THREE.MeshBasicMaterial({ color: 0xf59e0b });
+    const ringInner = new THREE.Mesh(ringInnerGeo, ringInnerMat);
+    ringInner.rotation.x = Math.PI / 2;
+    ringInner.position.y = 0.012;
+    this.stageGroup.add(ringInner);
+
+    // Holographic Cyber Grid
     this.floorGrid = new THREE.GridHelper(18, 36, 0x06b6d4, 0x1e293b);
     this.floorGrid.position.y = 0.02;
     (this.floorGrid.material as THREE.Material).opacity = 0.35;
@@ -198,7 +404,7 @@ export class GameArena {
 
     // Shadow receiver plane
     const shadowGeo = new THREE.PlaneGeometry(16, 16);
-    const shadowMat = new THREE.ShadowMaterial({ opacity: 0.55 });
+    const shadowMat = new THREE.ShadowMaterial({ opacity: 0.6 });
     this.floorPlane = new THREE.Mesh(shadowGeo, shadowMat);
     this.floorPlane.rotation.x = -Math.PI / 2;
     this.floorPlane.position.y = 0.015;
@@ -206,280 +412,435 @@ export class GameArena {
     this.stageGroup.add(this.floorPlane);
   }
 
-  // ==================== FULL-BODY ARTICULATED DANCING MONSTER ====================
-  private buildDancingBeatEater() {
-    this.beatEaterGroup = new THREE.Group();
-    this.beatEaterGroup.position.set(0, 0, 0);
+  // ==================== REALISTIC CINEMATIC 3D CREATURE ====================
+  private buildRealisticCreature() {
+    this.creatureRoot = new THREE.Group();
+    this.creatureRoot.position.set(0, 0, 0);
 
-    // Materials
-    const metalMat = new THREE.MeshStandardMaterial({
-      color: 0x1e2438,
-      metalness: 0.88,
-      roughness: 0.22
+    const { normalMap, roughnessMap } = this.generateScaleTextures();
+    const eyeTex = this.generatePredatorEyeTexture();
+
+    // Premium PBR Materials
+    const scaleSkinMat = new THREE.MeshStandardMaterial({
+      color: 0x181f33, // Deep abyssal navy/charcoal scale skin
+      metalness: 0.82,
+      roughness: 0.32,
+      normalMap: normalMap,
+      roughnessMap: roughnessMap
     });
-    const darkPlateMat = new THREE.MeshStandardMaterial({
-      color: 0x0f172a,
-      metalness: 0.95,
+
+    const darkChitinMat = new THREE.MeshStandardMaterial({
+      color: 0x0c111e, // Dark exoskeleton armor plate
+      metalness: 0.94,
+      roughness: 0.22,
+      normalMap: normalMap
+    });
+
+    const ivoryFangsMat = new THREE.MeshStandardMaterial({
+      color: 0xfef9c3,
+      metalness: 0.1,
       roughness: 0.15
     });
-    const neonCyanMat = new THREE.MeshBasicMaterial({ color: 0x00f0ff });
-    const neonPinkMat = new THREE.MeshBasicMaterial({ color: 0xec4899 });
 
-    // 1. Pelvis & Root
-    const pelvisGeo = new THREE.CylinderGeometry(0.5, 0.4, 0.35, 12);
-    const pelvis = new THREE.Mesh(pelvisGeo, darkPlateMat);
-    pelvis.position.y = 1.1;
-    this.beatEaterGroup.add(pelvis);
+    const neonCyanEmissive = new THREE.MeshBasicMaterial({ color: 0x00f0ff });
+    const neonAmberEmissive = new THREE.MeshBasicMaterial({ color: 0xf59e0b });
 
-    // 2. Spine & Chest (Dancer Torso)
-    this.dancerSpine = new THREE.Group();
-    this.dancerSpine.position.y = 0.2;
-    pelvis.add(this.dancerSpine);
+    // 1. Pelvis & Root (Weight center)
+    this.pelvisGroup = new THREE.Group();
+    this.pelvisGroup.position.y = 1.15;
+    this.creatureRoot.add(this.pelvisGroup);
 
-    const chestGeo = new THREE.DodecahedronGeometry(0.85, 1);
-    const chest = new THREE.Mesh(chestGeo, metalMat);
-    chest.position.y = 0.55;
-    chest.castShadow = true;
-    this.dancerSpine.add(chest);
+    const pelvisMesh = new THREE.Mesh(new THREE.CylinderGeometry(0.55, 0.42, 0.4, 16), darkChitinMat);
+    pelvisMesh.castShadow = true;
+    this.pelvisGroup.add(pelvisMesh);
 
-    // Glowing core reactor in center of chest
-    const coreGeo = new THREE.SphereGeometry(0.3, 16, 16);
-    this.dancerCore = new THREE.Mesh(coreGeo, neonPinkMat);
-    this.dancerCore.position.set(0, 0.55, 0.5);
-    this.dancerSpine.add(this.dancerCore);
+    // 2. Spine & Breathing Ribcage
+    this.spineGroup = new THREE.Group();
+    this.spineGroup.position.y = 0.22;
+    this.pelvisGroup.add(this.spineGroup);
 
-    // 3. Head & Neck
-    this.dancerHead = new THREE.Group();
-    this.dancerHead.position.set(0, 1.25, 0);
-    this.dancerSpine.add(this.dancerHead);
+    this.chestGroup = new THREE.Group();
+    this.chestGroup.position.y = 0.55;
+    this.spineGroup.add(this.chestGroup);
 
-    const headGeo = new THREE.BoxGeometry(0.8, 0.65, 0.75);
-    const headMesh = new THREE.Mesh(headGeo, metalMat);
-    this.dancerHead.add(headMesh);
+    // Muscular Anatomical Chest (Sculpted Pectorals)
+    const chestGeo = new THREE.SphereGeometry(0.82, 24, 18);
+    chestGeo.scale(1.0, 1.15, 0.85);
+    const chestMesh = new THREE.Mesh(chestGeo, scaleSkinMat);
+    chestMesh.castShadow = true;
+    this.chestGroup.add(chestMesh);
 
-    // Angular laser visor optics
-    const visorGeo = new THREE.PlaneGeometry(0.65, 0.16);
-    const visor = new THREE.Mesh(visorGeo, neonCyanMat);
-    visor.position.set(0, 0.08, 0.39);
-    this.dancerVisor = visor;
-    this.dancerHead.add(visor);
-
-    // Acoustic resonator horns
-    [-0.55, 0.55].forEach((xPos) => {
-      const hornGeo = new THREE.ConeGeometry(0.12, 0.7, 8);
-      const horn = new THREE.Mesh(hornGeo, darkPlateMat);
-      horn.position.set(xPos, 0.45, -0.1);
-      horn.rotation.z = xPos > 0 ? -0.45 : 0.45;
-      this.dancerHead.add(horn);
-    });
-
-    // Hydraulic predator jaw
-    const jawGeo = new THREE.BoxGeometry(0.75, 0.22, 0.65);
-    this.dancerJaw = new THREE.Mesh(jawGeo, darkPlateMat);
-    this.dancerJaw.position.set(0, -0.32, 0.18);
-    this.dancerHead.add(this.dancerJaw);
-
-    // Chrome razor teeth
-    for (let i = 0; i < 4; i++) {
-      const toothGeo = new THREE.ConeGeometry(0.06, 0.18, 6);
-      const tooth = new THREE.Mesh(toothGeo, new THREE.MeshStandardMaterial({ color: 0xffffff, metalness: 0.9 }));
-      tooth.position.set((i - 1.5) * 0.16, 0.12, 0.2);
-      this.dancerJaw.add(tooth);
+    // Layered abdominal armor scutes
+    for (let i = 0; i < 3; i++) {
+      const scute = new THREE.Mesh(new THREE.BoxGeometry(0.55 - i * 0.08, 0.14, 0.25), darkChitinMat);
+      scute.position.set(0, -0.32 + i * 0.2, 0.52);
+      this.chestGroup.add(scute);
     }
 
-    // 4. Arms & Hands (Left & Right)
+    // Glowing Biometric Power Reactor (Pulsing Heart)
+    const reactorGeo = new THREE.IcosahedronGeometry(0.24, 2);
+    this.coreReactor = new THREE.Mesh(reactorGeo, neonCyanEmissive);
+    this.coreReactor.position.set(0, 0.15, 0.58);
+    this.chestGroup.add(this.coreReactor);
+
+    // 7 Articulated Dorsal Spine Plates (running down the back)
+    for (let i = 0; i < 7; i++) {
+      const scale = 1.0 - Math.abs(i - 3) * 0.18;
+      const plate = new THREE.Mesh(new THREE.ConeGeometry(0.08 * scale, 0.42 * scale, 4), darkChitinMat);
+      plate.position.set(0, 0.65 - i * 0.18, -0.65 + i * 0.05);
+      plate.rotation.x = -0.55;
+      this.dorsalPlates.push(plate);
+      this.chestGroup.add(plate);
+    }
+
+    // 3. Neck & Anatomical Head
+    this.neckGroup = new THREE.Group();
+    this.neckGroup.position.set(0, 0.72, 0);
+    this.chestGroup.add(this.neckGroup);
+
+    const neckGeo = new THREE.CylinderGeometry(0.28, 0.36, 0.45, 16);
+    const neckMesh = new THREE.Mesh(neckGeo, scaleSkinMat);
+    this.neckGroup.add(neckMesh);
+
+    this.headGroup = new THREE.Group();
+    this.headGroup.position.set(0, 0.38, 0.12);
+    this.neckGroup.add(this.headGroup);
+
+    // Sculpted Cranium / Skull (Organic brow & muzzle)
+    const craniumGeo = new THREE.SphereGeometry(0.48, 20, 16);
+    craniumGeo.scale(0.85, 0.75, 1.25);
+    const craniumMesh = new THREE.Mesh(craniumGeo, scaleSkinMat);
+    craniumMesh.position.set(0, 0.08, -0.05);
+    craniumMesh.castShadow = true;
+    this.headGroup.add(craniumMesh);
+
+    // Snout / Maxilla
+    const snoutGeo = new THREE.ConeGeometry(0.32, 0.7, 6);
+    snoutGeo.rotateX(Math.PI / 2);
+    const snout = new THREE.Mesh(snoutGeo, darkChitinMat);
+    snout.position.set(0, -0.02, 0.55);
+    this.headGroup.add(snout);
+
+    // Dual Realistic Predatory Eyes
+    const eyeMat = new THREE.MeshStandardMaterial({
+      map: eyeTex,
+      roughness: 0.1,
+      metalness: 0.1
+    });
+
+    const corneaMat = new THREE.MeshPhysicalMaterial({
+      color: 0xffffff,
+      transmission: 0.75,
+      opacity: 0.9,
+      roughness: 0.04,
+      transparent: true,
+      clearcoat: 1.0,
+      clearcoatRoughness: 0.05
+    });
+
+    [-0.32, 0.32].forEach((xSide, idx) => {
+      const eyeSocket = new THREE.Group();
+      eyeSocket.position.set(xSide, 0.14, 0.32);
+      eyeSocket.rotation.y = xSide > 0 ? 0.35 : -0.35;
+      this.headGroup.add(eyeSocket);
+
+      // Eyeball
+      const eyeOrb = new THREE.Mesh(new THREE.SphereGeometry(0.12, 16, 16), eyeMat);
+      eyeOrb.rotation.y = Math.PI / 2;
+      eyeSocket.add(eyeOrb);
+
+      // Cornea dome
+      const cornea = new THREE.Mesh(new THREE.SphereGeometry(0.13, 16, 16), corneaMat);
+      eyeSocket.add(cornea);
+
+      // Upper eyelid
+      const lidGeo = new THREE.SphereGeometry(0.135, 16, 16, 0, Math.PI * 2, 0, Math.PI / 2);
+      const eyelid = new THREE.Mesh(lidGeo, darkChitinMat);
+      eyelid.rotation.x = -0.4;
+      eyeSocket.add(eyelid);
+
+      if (idx === 0) {
+        this.eyeOrbL = eyeOrb;
+        this.upperEyelidL = eyelid;
+      } else {
+        this.eyeOrbR = eyeOrb;
+        this.upperEyelidR = eyelid;
+      }
+    });
+
+    // Swept-Back Majestic Horns / Acoustic Crests
+    this.hornsGroup = new THREE.Group();
+    this.headGroup.add(this.hornsGroup);
+
+    [-0.42, 0.42].forEach((hx) => {
+      const hornCurve = new THREE.CatmullRomCurve3([
+        new THREE.Vector3(hx, 0.22, 0.0),
+        new THREE.Vector3(hx * 1.35, 0.65, -0.3),
+        new THREE.Vector3(hx * 1.65, 0.95, -0.75)
+      ]);
+      const hornGeo = new THREE.TubeGeometry(hornCurve, 20, 0.09, 8, false);
+      const hornMesh = new THREE.Mesh(hornGeo, darkChitinMat);
+      this.hornsGroup.add(hornMesh);
+
+      // Bioluminescent ring bands around horns
+      for (let ring = 1; ring <= 3; ring++) {
+        const pt = hornCurve.getPoint(ring * 0.25);
+        const rBand = new THREE.Mesh(new THREE.TorusGeometry(0.09 - ring * 0.015, 0.018, 8, 16), neonCyanEmissive);
+        rBand.position.copy(pt);
+        rBand.lookAt(hornCurve.getPoint(ring * 0.25 + 0.05));
+        this.hornsGroup.add(rBand);
+      }
+    });
+
+    // Articulated Lower Jaw & Fangs
+    this.lowerJawGroup = new THREE.Group();
+    this.lowerJawGroup.position.set(0, -0.16, 0.12);
+    this.headGroup.add(this.lowerJawGroup);
+
+    const jawGeo = new THREE.BoxGeometry(0.48, 0.14, 0.72);
+    const jawMesh = new THREE.Mesh(jawGeo, darkChitinMat);
+    jawMesh.position.set(0, -0.05, 0.24);
+    this.lowerJawGroup.add(jawMesh);
+
+    // Realistic curved fangs (4 main predatory canines + cheek incisors)
+    const fangPositions = [
+      [-0.18, 0.08, 0.46, 0.22],
+      [0.18, 0.08, 0.46, 0.22],
+      [-0.14, 0.06, 0.26, 0.16],
+      [0.14, 0.06, 0.26, 0.16]
+    ];
+    fangPositions.forEach(([fx, fy, fz, fHeight]) => {
+      const fang = new THREE.Mesh(new THREE.ConeGeometry(0.045, fHeight, 8), ivoryFangsMat);
+      fang.position.set(fx, fy, fz);
+      fang.rotation.x = -0.25;
+      this.lowerJawGroup.add(fang);
+    });
+
+    // Fleshy Tongue
+    const tongueGeo = new THREE.ConeGeometry(0.09, 0.35, 6);
+    tongueGeo.rotateX(Math.PI / 2);
+    this.tongueMesh = new THREE.Mesh(
+      tongueGeo,
+      new THREE.MeshStandardMaterial({ color: 0x9f1239, roughness: 0.4 })
+    );
+    this.tongueMesh.position.set(0, 0.02, 0.24);
+    this.lowerJawGroup.add(this.tongueMesh);
+
+    // 4. Clavicles & Arms
     // Left Arm
-    this.dancerLeftArm = new THREE.Group();
-    this.dancerLeftArm.position.set(-0.95, 0.75, 0);
-    this.dancerSpine.add(this.dancerLeftArm);
+    this.leftClavicle = new THREE.Group();
+    this.leftClavicle.position.set(-0.75, 0.35, 0);
+    this.chestGroup.add(this.leftClavicle);
 
-    const upperArmGeo = new THREE.CylinderGeometry(0.12, 0.1, 0.55, 8);
-    const leftUpperArm = new THREE.Mesh(upperArmGeo, metalMat);
-    leftUpperArm.position.y = -0.25;
-    this.dancerLeftArm.add(leftUpperArm);
+    const shoulderPauldronL = new THREE.Mesh(new THREE.SphereGeometry(0.24, 16, 12), darkChitinMat);
+    this.leftClavicle.add(shoulderPauldronL);
 
-    this.dancerLeftForearm = new THREE.Group();
-    this.dancerLeftForearm.position.y = -0.5;
-    this.dancerLeftArm.add(this.dancerLeftForearm);
+    this.leftUpperArm = new THREE.Group();
+    this.leftUpperArm.position.y = -0.12;
+    this.leftClavicle.add(this.leftUpperArm);
 
-    const foreArmGeo = new THREE.CylinderGeometry(0.1, 0.14, 0.5, 8);
-    const leftForearmMesh = new THREE.Mesh(foreArmGeo, darkPlateMat);
-    leftForearmMesh.position.y = -0.25;
-    this.dancerLeftForearm.add(leftForearmMesh);
+    const bicepMeshL = new THREE.Mesh(new THREE.CylinderGeometry(0.14, 0.11, 0.58, 12), scaleSkinMat);
+    bicepMeshL.position.y = -0.26;
+    this.leftUpperArm.add(bicepMeshL);
 
-    // Left Cyber Hand & Articulated Fingers
-    this.dancerLeftHand = new THREE.Group();
-    this.dancerLeftHand.position.y = -0.52;
-    this.dancerLeftForearm.add(this.dancerLeftHand);
+    this.leftForearm = new THREE.Group();
+    this.leftForearm.position.y = -0.54;
+    this.leftUpperArm.add(this.leftForearm);
 
-    const handPalmGeo = new THREE.BoxGeometry(0.16, 0.12, 0.1);
-    const leftPalm = new THREE.Mesh(handPalmGeo, metalMat);
-    this.dancerLeftHand.add(leftPalm);
+    const forearmMeshL = new THREE.Mesh(new THREE.CylinderGeometry(0.11, 0.15, 0.52, 12), darkChitinMat);
+    forearmMeshL.position.y = -0.24;
+    this.leftForearm.add(forearmMeshL);
 
-    // 3 cyber fingers on left hand
-    [-0.05, 0, 0.05].forEach((fX) => {
-      const fingerGeo = new THREE.CylinderGeometry(0.02, 0.02, 0.14, 6);
-      const finger = new THREE.Mesh(fingerGeo, neonCyanMat);
-      finger.position.set(fX, -0.1, 0);
-      this.dancerLeftHand.add(finger);
+    this.leftHandGroup = new THREE.Group();
+    this.leftHandGroup.position.y = -0.52;
+    this.leftForearm.add(this.leftHandGroup);
+
+    const palmL = new THREE.Mesh(new THREE.BoxGeometry(0.18, 0.14, 0.1), darkChitinMat);
+    this.leftHandGroup.add(palmL);
+
+    // 3 Sharp obsidian talons on left hand
+    [-0.06, 0, 0.06].forEach((cx) => {
+      const claw = new THREE.Mesh(new THREE.ConeGeometry(0.026, 0.16, 6), darkChitinMat);
+      claw.position.set(cx, -0.14, 0.02);
+      this.leftHandGroup.add(claw);
     });
 
     // Right Arm
-    this.dancerRightArm = new THREE.Group();
-    this.dancerRightArm.position.set(0.95, 0.75, 0);
-    this.dancerSpine.add(this.dancerRightArm);
+    this.rightClavicle = new THREE.Group();
+    this.rightClavicle.position.set(0.75, 0.35, 0);
+    this.chestGroup.add(this.rightClavicle);
 
-    const rightUpperArm = new THREE.Mesh(upperArmGeo, metalMat);
-    rightUpperArm.position.y = -0.25;
-    this.dancerRightArm.add(rightUpperArm);
+    const shoulderPauldronR = new THREE.Mesh(new THREE.SphereGeometry(0.24, 16, 12), darkChitinMat);
+    this.rightClavicle.add(shoulderPauldronR);
 
-    this.dancerRightForearm = new THREE.Group();
-    this.dancerRightForearm.position.y = -0.5;
-    this.dancerRightArm.add(this.dancerRightForearm);
+    this.rightUpperArm = new THREE.Group();
+    this.rightUpperArm.position.y = -0.12;
+    this.rightClavicle.add(this.rightUpperArm);
 
-    const rightForearmMesh = new THREE.Mesh(foreArmGeo, darkPlateMat);
-    rightForearmMesh.position.y = -0.25;
-    this.dancerRightForearm.add(rightForearmMesh);
+    const bicepMeshR = new THREE.Mesh(new THREE.CylinderGeometry(0.14, 0.11, 0.58, 12), scaleSkinMat);
+    bicepMeshR.position.y = -0.26;
+    this.rightUpperArm.add(bicepMeshR);
 
-    // Right Cyber Hand & Articulated Fingers
-    this.dancerRightHand = new THREE.Group();
-    this.dancerRightHand.position.y = -0.52;
-    this.dancerRightForearm.add(this.dancerRightHand);
+    this.rightForearm = new THREE.Group();
+    this.rightForearm.position.y = -0.54;
+    this.rightUpperArm.add(this.rightForearm);
 
-    const rightPalm = new THREE.Mesh(handPalmGeo, metalMat);
-    this.dancerRightHand.add(rightPalm);
+    const forearmMeshR = new THREE.Mesh(new THREE.CylinderGeometry(0.11, 0.15, 0.52, 12), darkChitinMat);
+    forearmMeshR.position.y = -0.24;
+    this.rightForearm.add(forearmMeshR);
 
-    [-0.05, 0, 0.05].forEach((fX) => {
-      const fingerGeo = new THREE.CylinderGeometry(0.02, 0.02, 0.14, 6);
-      const finger = new THREE.Mesh(fingerGeo, neonCyanMat);
-      finger.position.set(fX, -0.1, 0);
-      this.dancerRightHand.add(finger);
+    this.rightHandGroup = new THREE.Group();
+    this.rightHandGroup.position.y = -0.52;
+    this.rightForearm.add(this.rightHandGroup);
+
+    const palmR = new THREE.Mesh(new THREE.BoxGeometry(0.18, 0.14, 0.1), darkChitinMat);
+    this.rightHandGroup.add(palmR);
+
+    [-0.06, 0, 0.06].forEach((cx) => {
+      const claw = new THREE.Mesh(new THREE.ConeGeometry(0.026, 0.16, 6), darkChitinMat);
+      claw.position.set(cx, -0.14, 0.02);
+      this.rightHandGroup.add(claw);
     });
 
-    // 5. Legs & Feet (Left & Right)
-    const thighGeo = new THREE.CylinderGeometry(0.18, 0.14, 0.6, 8);
-    const shinGeo = new THREE.CylinderGeometry(0.14, 0.18, 0.55, 8);
-    const footGeo = new THREE.BoxGeometry(0.3, 0.15, 0.45);
-
+    // 5. Heavy Muscular Digitigrade Legs & Raptor Talons
     // Left Leg
-    this.dancerLeftLeg = new THREE.Group();
-    this.dancerLeftLeg.position.set(-0.45, 0, 0);
-    pelvis.add(this.dancerLeftLeg);
+    this.leftThighGroup = new THREE.Group();
+    this.leftThighGroup.position.set(-0.48, -0.05, 0);
+    this.pelvisGroup.add(this.leftThighGroup);
 
-    const leftThigh = new THREE.Mesh(thighGeo, metalMat);
-    leftThigh.position.y = -0.3;
-    this.dancerLeftLeg.add(leftThigh);
+    const thighL = new THREE.Mesh(new THREE.CylinderGeometry(0.22, 0.16, 0.65, 14), scaleSkinMat);
+    thighL.position.y = -0.32;
+    this.leftThighGroup.add(thighL);
 
-    const leftShin = new THREE.Mesh(shinGeo, darkPlateMat);
-    leftShin.position.y = -0.75;
-    this.dancerLeftLeg.add(leftShin);
+    // Armored knee cap
+    const kneeL = new THREE.Mesh(new THREE.SphereGeometry(0.15, 12, 10), darkChitinMat);
+    kneeL.position.set(0, -0.62, 0.12);
+    this.leftThighGroup.add(kneeL);
 
-    this.dancerLeftFoot = new THREE.Mesh(footGeo, darkPlateMat);
-    this.dancerLeftFoot.position.set(0, -1.05, 0.1);
-    this.dancerLeftFoot.castShadow = true;
-    this.dancerLeftLeg.add(this.dancerLeftFoot);
+    this.leftShinGroup = new THREE.Group();
+    this.leftShinGroup.position.y = -0.65;
+    this.leftThighGroup.add(this.leftShinGroup);
+
+    const shinL = new THREE.Mesh(new THREE.CylinderGeometry(0.15, 0.2, 0.6, 12), darkChitinMat);
+    shinL.position.y = -0.28;
+    this.leftShinGroup.add(shinL);
+
+    this.leftFootMesh = new THREE.Group();
+    this.leftFootMesh.position.set(0, -0.58, 0.12);
+    this.leftShinGroup.add(this.leftFootMesh);
+
+    const footBaseL = new THREE.Mesh(new THREE.BoxGeometry(0.32, 0.14, 0.48), darkChitinMat);
+    footBaseL.castShadow = true;
+    this.leftFootMesh.add(footBaseL);
+
+    // 3 grounded raptor claws
+    [-0.09, 0, 0.09].forEach((tx) => {
+      const talon = new THREE.Mesh(new THREE.ConeGeometry(0.04, 0.24, 6), ivoryFangsMat);
+      talon.rotation.x = Math.PI / 2;
+      talon.position.set(tx, -0.04, 0.3);
+      this.leftFootMesh.add(talon);
+    });
 
     // Right Leg
-    this.dancerRightLeg = new THREE.Group();
-    this.dancerRightLeg.position.set(0.45, 0, 0);
-    pelvis.add(this.dancerRightLeg);
+    this.rightThighGroup = new THREE.Group();
+    this.rightThighGroup.position.set(0.48, -0.05, 0);
+    this.pelvisGroup.add(this.rightThighGroup);
 
-    const rightThigh = new THREE.Mesh(thighGeo, metalMat);
-    rightThigh.position.y = -0.3;
-    this.dancerRightLeg.add(rightThigh);
+    const thighR = new THREE.Mesh(new THREE.CylinderGeometry(0.22, 0.16, 0.65, 14), scaleSkinMat);
+    thighR.position.y = -0.32;
+    this.rightThighGroup.add(thighR);
 
-    const rightShin = new THREE.Mesh(shinGeo, darkPlateMat);
-    rightShin.position.y = -0.75;
-    this.dancerRightLeg.add(rightShin);
+    const kneeR = new THREE.Mesh(new THREE.SphereGeometry(0.15, 12, 10), darkChitinMat);
+    kneeR.position.set(0, -0.62, 0.12);
+    this.rightThighGroup.add(kneeR);
 
-    this.dancerRightFoot = new THREE.Mesh(footGeo, darkPlateMat);
-    this.dancerRightFoot.position.set(0, -1.05, 0.1);
-    this.dancerRightFoot.castShadow = true;
-    this.dancerRightLeg.add(this.dancerRightFoot);
+    this.rightShinGroup = new THREE.Group();
+    this.rightShinGroup.position.y = -0.65;
+    this.rightThighGroup.add(this.rightShinGroup);
 
-    this.monsterGroup.add(this.beatEaterGroup);
+    const shinR = new THREE.Mesh(new THREE.CylinderGeometry(0.15, 0.2, 0.6, 12), darkChitinMat);
+    shinR.position.y = -0.28;
+    this.rightShinGroup.add(shinR);
+
+    this.rightFootMesh = new THREE.Group();
+    this.rightFootMesh.position.set(0, -0.58, 0.12);
+    this.rightShinGroup.add(this.rightFootMesh);
+
+    const footBaseR = new THREE.Mesh(new THREE.BoxGeometry(0.32, 0.14, 0.48), darkChitinMat);
+    footBaseR.castShadow = true;
+    this.rightFootMesh.add(footBaseR);
+
+    [-0.09, 0, 0.09].forEach((tx) => {
+      const talon = new THREE.Mesh(new THREE.ConeGeometry(0.04, 0.24, 6), ivoryFangsMat);
+      talon.rotation.x = Math.PI / 2;
+      talon.position.set(tx, -0.04, 0.3);
+      this.rightFootMesh.add(talon);
+    });
+
+    // 6. Articulated Flexible Tail (5 linked segments with trailing physics)
+    let prevTailGroup: THREE.Group = this.pelvisGroup;
+    for (let seg = 0; seg < 5; seg++) {
+      const segGroup = new THREE.Group();
+      segGroup.position.set(0, -0.15, -0.35);
+      prevTailGroup.add(segGroup);
+
+      const radius = 0.18 - seg * 0.028;
+      const segMesh = new THREE.Mesh(new THREE.CylinderGeometry(radius * 0.8, radius, 0.45, 10), darkChitinMat);
+      segMesh.rotation.x = -Math.PI / 3;
+      segMesh.position.set(0, -0.18, -0.16);
+      segGroup.add(segMesh);
+
+      this.tailSegments.push(segGroup);
+      prevTailGroup = segGroup;
+    }
+
+    this.monsterGroup.add(this.creatureRoot);
   }
 
-  // ==================== MONSTER 2: THE RHYTHM BREAKER ====================
-  private buildRhythmBreaker() {
-    this.rhythmBreakerGroup = new THREE.Group();
-    this.rhythmBreakerGroup.position.set(0, 0, 0);
-    this.rhythmBreakerGroup.visible = false;
-
-    const torsoGeo = new THREE.BoxGeometry(1.6, 1.8, 1.2);
-    const torsoMat = new THREE.MeshStandardMaterial({ color: 0x1e293b, metalness: 0.9, roughness: 0.25 });
-    const torso = new THREE.Mesh(torsoGeo, torsoMat);
-    torso.position.y = 1.8;
-    torso.castShadow = true;
-    this.rhythmBreakerGroup.add(torso);
-
-    const coreGeo = new THREE.SphereGeometry(0.35, 24, 24);
-    const core = new THREE.Mesh(coreGeo, new THREE.MeshBasicMaterial({ color: 0x06b6d4 }));
-    core.position.set(0, 1.8, 0.65);
-    this.rhythmBreakerGroup.add(core);
-
-    const headGeo = new THREE.BoxGeometry(0.9, 0.8, 0.9);
-    const head = new THREE.Mesh(headGeo, new THREE.MeshStandardMaterial({ color: 0x0f172a, metalness: 0.8 }));
-    head.position.set(0, 3.0, 0);
-    this.rhythmBreakerGroup.add(head);
-
-    // Holographic Shield Disc
+  // ==================== STAGE BOSS PROPS & SHIELDS ====================
+  private buildRhythmBreakerProps() {
     this.rhythmShield = new THREE.Group();
-    this.rhythmShield.position.set(0, 1.8, 1.5);
+    this.rhythmShield.position.set(0, 1.45, 1.3);
+    this.rhythmShield.visible = false;
+
     const shieldDiscGeo = new THREE.CylinderGeometry(1.4, 1.4, 0.06, 32);
     const shieldDiscMat = new THREE.MeshPhysicalMaterial({
       color: 0x06b6d4,
-      transmission: 0.7,
+      transmission: 0.75,
       opacity: 0.85,
       transparent: true,
-      roughness: 0.1
+      roughness: 0.08,
+      clearcoat: 1.0
     });
     const shieldDisc = new THREE.Mesh(shieldDiscGeo, shieldDiscMat);
     shieldDisc.rotation.x = Math.PI / 2;
     this.rhythmShield.add(shieldDisc);
 
-    const runeGeo = new THREE.PlaneGeometry(1.2, 1.2);
+    const runeGeo = new THREE.PlaneGeometry(1.3, 1.3);
     this.rhythmRuneMesh = new THREE.Mesh(runeGeo, new THREE.MeshBasicMaterial({ transparent: true, opacity: 0.95 }));
     this.rhythmRuneMesh.position.z = 0.05;
     this.rhythmShield.add(this.rhythmRuneMesh);
-    this.rhythmBreakerGroup.add(this.rhythmShield);
 
-    this.monsterGroup.add(this.rhythmBreakerGroup);
+    this.creatureRoot.add(this.rhythmShield);
   }
 
-  // ==================== MONSTER 3: THE MUSIC DESTROYER ====================
-  private buildMusicDestroyer() {
-    this.bossGroup = new THREE.Group();
-    this.bossGroup.position.set(0, 0, 0);
-    this.bossGroup.visible = false;
-
-    const coreGeo = new THREE.OctahedronGeometry(1.6, 2);
-    const bodyCore = new THREE.Mesh(
-      coreGeo,
-      new THREE.MeshStandardMaterial({ color: 0x4c1d95, metalness: 0.85, roughness: 0.15 })
-    );
-    bodyCore.position.y = 2.4;
-    bodyCore.castShadow = true;
-    this.bossArmorParts.push(bodyCore);
-    this.bossGroup.add(bodyCore);
-
-    // Orbiting Audio Rings
-    [2.2, 2.6, 3.0].forEach((r, idx) => {
-      const rGeo = new THREE.TorusGeometry(r, 0.05, 16, 64);
+  private buildMusicDestroyerProps() {
+    // 3 Orbiting Audio Resonance Rings for Final Boss Phase
+    [2.3, 2.7, 3.1].forEach((r, idx) => {
+      const rGeo = new THREE.TorusGeometry(r, 0.055, 16, 64);
       const ring = new THREE.Mesh(
         rGeo,
         new THREE.MeshBasicMaterial({
           color: idx === 0 ? 0x06b6d4 : idx === 1 ? 0xd946ef : 0xf59e0b,
           transparent: true,
-          opacity: 0.8
+          opacity: 0.85
         })
       );
-      ring.position.y = 2.4;
+      ring.position.set(0, 1.4, 0);
+      ring.visible = false;
       this.bossOrbitRings.push(ring);
-      this.bossGroup!.add(ring);
+      this.creatureRoot.add(ring);
     });
-
-    this.monsterGroup.add(this.bossGroup);
   }
 
   // ==================== PARTICLE SYSTEM ====================
@@ -488,8 +849,7 @@ export class GameArena {
     geo.setAttribute('position', new THREE.BufferAttribute(this.particlePositions, 3));
 
     const mat = new THREE.PointsMaterial({
-      size: 0.18,
-      vertexColors: false,
+      size: 0.2,
       color: 0x00f0ff,
       transparent: true,
       opacity: 0.9,
@@ -523,81 +883,74 @@ export class GameArena {
     this.impactParticles.geometry.attributes.position.needsUpdate = true;
   }
 
+  // ==================== EXTERNAL POINTER / HEAD TRACKING ====================
+  public setTargetPointer(x: number, y: number) {
+    // Normal 0..1 coordinates
+    this.pointerTarget.set(Math.max(0, Math.min(1, x)), Math.max(0, Math.min(1, y)));
+  }
+
   // ==================== DANCE TRIGGER API ====================
   public setDanceMove(move: DanceMoveId, duration: number = 2.4) {
     this.currentDanceMove = move;
     this.danceTimer = duration;
 
-    // Dynamically update cyber visor color and trigger strobe/shake
-    if (this.dancerVisor) {
-      const visorMat = this.dancerVisor.material as THREE.MeshBasicMaterial;
-      switch (move) {
-        case 'drums_stomp':
-          visorMat.color.setHex(0x06b6d4); // Cyan
-          this.triggerScreenShake(0.12);
-          this.triggerStrobe(0x06b6d4);
-          this.spawnParticlesAt(new THREE.Vector3(0, 0.4, 0), 0x06b6d4, 15);
-          break;
-        case 'guitar_headbang':
-          visorMat.color.setHex(0xf97316); // Orange
-          this.triggerScreenShake(0.1);
-          this.triggerStrobe(0xf97316);
-          this.spawnParticlesAt(new THREE.Vector3(0, 1.8, 0), 0xf97316, 20);
-          break;
-        case 'piano_sway':
-          visorMat.color.setHex(0x3b82f6); // Blue
-          this.triggerStrobe(0x3b82f6);
-          this.spawnParticlesAt(new THREE.Vector3(0, 1.5, 0), 0x3b82f6, 15);
-          break;
-        case 'trumpet_march':
-          visorMat.color.setHex(0xeab308); // Yellow
-          this.triggerStrobe(0xeab308);
-          this.spawnParticlesAt(new THREE.Vector3(0, 2.2, 0), 0xeab308, 18);
-          break;
-        case 'violin_spin':
-          visorMat.color.setHex(0xd946ef); // Magenta
-          this.triggerStrobe(0xd946ef);
-          this.spawnParticlesAt(new THREE.Vector3(0, 1.6, 0), 0xd946ef, 22);
-          break;
-        case 'dj_bassdrop':
-          visorMat.color.setHex(0x22c55e); // Neon Green
-          this.triggerScreenShake(0.18);
-          this.triggerStrobe(0x22c55e);
-          this.spawnParticlesAt(new THREE.Vector3(0, 0.2, 0), 0x22c55e, 25);
-          break;
-        case 'missed_stumble':
-          visorMat.color.setHex(0xef4444); // Red glitch
-          this.triggerScreenShake(0.08);
-          this.triggerStrobe(0xef4444);
-          this.spawnParticlesAt(new THREE.Vector3(0, 1.2, 0), 0x94a3b8, 12);
-          break;
-        case 'fever_dance':
-          visorMat.color.setHex(0xfbbf24); // Gold
-          this.triggerScreenShake(0.22);
-          this.triggerStrobe(0xfbbf24);
-          this.spawnParticlesAt(new THREE.Vector3(0, 2.0, 0), 0xfbbf24, 45);
-          break;
-        case 'super_thunder':
-        case 'super_storm':
-        case 'super_drop':
-          visorMat.color.setHex(0xa855f7); // Cosmic Purple
-          this.triggerScreenShake(0.3);
-          this.triggerStrobe(0xa855f7);
-          this.spawnParticlesAt(new THREE.Vector3(0, 2.0, 0), 0xa855f7, 50);
-          break;
-        default:
-          visorMat.color.setHex(0x00f0ff);
-          break;
-      }
+    // Trigger visual particle and lighting flair on move change
+    switch (move) {
+      case 'drums_stomp':
+        this.triggerScreenShake(0.14);
+        this.triggerStrobe(0x06b6d4);
+        this.spawnParticlesAt(new THREE.Vector3(0, 0.4, 0), 0x06b6d4, 18);
+        break;
+      case 'guitar_headbang':
+        this.triggerScreenShake(0.12);
+        this.triggerStrobe(0xf97316);
+        this.spawnParticlesAt(new THREE.Vector3(0, 1.8, 0), 0xf97316, 22);
+        break;
+      case 'piano_sway':
+        this.triggerStrobe(0x3b82f6);
+        this.spawnParticlesAt(new THREE.Vector3(0, 1.5, 0), 0x3b82f6, 16);
+        break;
+      case 'trumpet_march':
+        this.triggerStrobe(0xeab308);
+        this.spawnParticlesAt(new THREE.Vector3(0, 2.2, 0), 0xeab308, 20);
+        break;
+      case 'violin_spin':
+        this.triggerStrobe(0xd946ef);
+        this.spawnParticlesAt(new THREE.Vector3(0, 1.6, 0), 0xd946ef, 24);
+        break;
+      case 'dj_bassdrop':
+        this.triggerScreenShake(0.2);
+        this.triggerStrobe(0x22c55e);
+        this.spawnParticlesAt(new THREE.Vector3(0, 0.2, 0), 0x22c55e, 28);
+        break;
+      case 'missed_stumble':
+        this.triggerScreenShake(0.08);
+        this.triggerStrobe(0xef4444);
+        this.spawnParticlesAt(new THREE.Vector3(0, 1.2, 0), 0x94a3b8, 12);
+        break;
+      case 'fever_dance':
+        this.triggerScreenShake(0.24);
+        this.triggerStrobe(0xfbbf24);
+        this.spawnParticlesAt(new THREE.Vector3(0, 2.0, 0), 0xfbbf24, 45);
+        break;
+      case 'super_thunder':
+      case 'super_storm':
+      case 'super_drop':
+        this.triggerScreenShake(0.32);
+        this.triggerStrobe(0xa855f7);
+        this.spawnParticlesAt(new THREE.Vector3(0, 2.0, 0), 0xa855f7, 50);
+        break;
+      default:
+        break;
     }
   }
 
   // ==================== ATTACK VISUAL PROJECTILES ====================
   public fireAttack(event: AttackEvent) {
-    const monsterPos = new THREE.Vector3(0, 1.6, 0);
+    const monsterPos = new THREE.Vector3(0, 1.5, 0);
     const start3D = new THREE.Vector3(
       (event.startX - 0.5) * 11,
-      (0.5 - event.startY) * 7 + 1.6,
+      (0.5 - event.startY) * 7 + 1.5,
       3.0
     );
 
@@ -605,35 +958,35 @@ export class GameArena {
     const colorHex = parseInt(event.color.replace('#', '0x'), 16);
 
     if (event.isSuperAttack) {
-      const superGeo = new THREE.IcosahedronGeometry(0.8, 2);
+      const superGeo = new THREE.IcosahedronGeometry(0.85, 2);
       const superMat = new THREE.MeshBasicMaterial({ color: colorHex, wireframe: true });
       projMesh = new THREE.Mesh(superGeo, superMat);
-      this.triggerScreenShake(0.3);
+      this.triggerScreenShake(0.28);
       this.triggerStrobe(colorHex);
     } else {
       switch (event.instrumentId) {
         case 'drums': {
-          const geo = new THREE.TorusGeometry(0.6, 0.12, 16, 32);
+          const geo = new THREE.TorusGeometry(0.65, 0.14, 16, 32);
           projMesh = new THREE.Mesh(geo, new THREE.MeshBasicMaterial({ color: colorHex, transparent: true, opacity: 0.9 }));
           break;
         }
         case 'guitar': {
-          const geo = new THREE.ConeGeometry(0.3, 1.2, 4);
+          const geo = new THREE.ConeGeometry(0.32, 1.2, 4);
           projMesh = new THREE.Mesh(geo, new THREE.MeshBasicMaterial({ color: colorHex }));
           break;
         }
         case 'piano': {
-          const geo = new THREE.BoxGeometry(0.4, 0.8, 0.1);
+          const geo = new THREE.BoxGeometry(0.42, 0.85, 0.12);
           projMesh = new THREE.Mesh(geo, new THREE.MeshStandardMaterial({ color: colorHex, roughness: 0.1 }));
           break;
         }
         case 'trumpet': {
-          const geo = new THREE.RingGeometry(0.2, 0.7, 32);
+          const geo = new THREE.RingGeometry(0.25, 0.75, 32);
           projMesh = new THREE.Mesh(geo, new THREE.MeshBasicMaterial({ color: colorHex, side: THREE.DoubleSide }));
           break;
         }
         case 'violin': {
-          const geo = new THREE.TorusKnotGeometry(0.35, 0.08, 64, 8);
+          const geo = new THREE.TorusKnotGeometry(0.36, 0.09, 64, 8);
           projMesh = new THREE.Mesh(geo, new THREE.MeshStandardMaterial({ color: colorHex, roughness: 0.2 }));
           break;
         }
@@ -720,33 +1073,19 @@ export class GameArena {
 
   public setStage(stage: string) {
     this.currentStage = stage;
-    // The dancing articulated creature is ALWAYS the star in all stages!
-    if (this.beatEaterGroup) this.beatEaterGroup.visible = true;
 
     if (stage === 'stage_1_beat_eater') {
       if (this.rhythmShield) this.rhythmShield.visible = false;
       this.bossOrbitRings.forEach((r) => (r.visible = false));
-      if (this.dancerCore) (this.dancerCore.material as THREE.MeshBasicMaterial).color.setHex(0xec4899);
+      if (this.coreReactor) (this.coreReactor.material as THREE.MeshBasicMaterial).color.setHex(0x06b6d4);
     } else if (stage === 'stage_2_rhythm_breaker') {
-      if (this.rhythmShield) {
-        this.rhythmShield.visible = true;
-        if (this.beatEaterGroup && this.rhythmShield.parent !== this.beatEaterGroup) {
-          this.beatEaterGroup.add(this.rhythmShield);
-          this.rhythmShield.position.set(0, 1.3, 1.2);
-        }
-      }
+      if (this.rhythmShield) this.rhythmShield.visible = true;
       this.bossOrbitRings.forEach((r) => (r.visible = false));
-      if (this.dancerCore) (this.dancerCore.material as THREE.MeshBasicMaterial).color.setHex(0x06b6d4);
+      if (this.coreReactor) (this.coreReactor.material as THREE.MeshBasicMaterial).color.setHex(0xd946ef);
     } else if (stage === 'stage_3_music_destroyer') {
       if (this.rhythmShield) this.rhythmShield.visible = false;
-      this.bossOrbitRings.forEach((r) => {
-        r.visible = true;
-        if (this.beatEaterGroup && r.parent !== this.beatEaterGroup) {
-          this.beatEaterGroup.add(r);
-          r.position.set(0, 1.4, 0);
-        }
-      });
-      if (this.dancerCore) (this.dancerCore.material as THREE.MeshBasicMaterial).color.setHex(0xf59e0b);
+      this.bossOrbitRings.forEach((r) => (r.visible = true));
+      if (this.coreReactor) (this.coreReactor.material as THREE.MeshBasicMaterial).color.setHex(0xf59e0b);
     }
   }
 
@@ -756,14 +1095,14 @@ export class GameArena {
 
   public playDefeatAnimation(callback?: () => void) {
     this.spawnParticlesAt(new THREE.Vector3(0, 2.0, 0), 0xf59e0b, 150);
-    this.triggerScreenShake(0.3);
+    this.triggerScreenShake(0.32);
     this.triggerStrobe(0xff00ff);
     if (callback) setTimeout(callback, 900);
   }
 
-  // ==================== PROCEDURAL SKELETAL DANCE ANIMATOR ====================
+  // ==================== PROCEDURAL SKELETAL DANCE & BREATHING ====================
   private updateMonsterDance(delta: number, time: number) {
-    if (!this.beatEaterGroup || !this.beatEaterGroup.visible) return;
+    if (!this.creatureRoot) return;
 
     if (this.danceTimer > 0) {
       this.danceTimer -= delta;
@@ -773,246 +1112,256 @@ export class GameArena {
     }
 
     const move = this.currentDanceMove;
-    const bpm = 124;
-    const beatTime = (time * (bpm / 60)) * Math.PI;
+    const bpm = 120;
+    const beatTime = time * (bpm / 60) * Math.PI;
 
+    // 1. Organic Parametric Breathing (Gentle chest & abdomen expansion)
+    const breath = Math.sin(time * 2.2);
+    this.chestGroup.scale.set(
+      1.0 + breath * 0.035,
+      1.0 + breath * 0.02,
+      1.0 + breath * 0.045
+    );
+
+    // 2. Head & Eye Tracking (Subtly follows active hand / cursor)
+    const targetYaw = (this.pointerTarget.x - 0.5) * 0.65;
+    const targetPitch = -(this.pointerTarget.y - 0.5) * 0.45;
+    this.currentHeadYaw = THREE.MathUtils.lerp(this.currentHeadYaw, targetYaw, delta * 4);
+    this.currentHeadPitch = THREE.MathUtils.lerp(this.currentHeadPitch, targetPitch, delta * 4);
+
+    // 3. Natural Eyelid Blinking
+    this.blinkTimer += delta;
+    if (this.blinkTimer > 3.2) {
+      this.isBlinking = true;
+      if (this.blinkTimer > 3.38) {
+        this.isBlinking = false;
+        this.blinkTimer = 0;
+      }
+    }
+    const blinkAngle = this.isBlinking ? 0.35 : -0.4;
+    this.upperEyelidL.rotation.x = THREE.MathUtils.lerp(this.upperEyelidL.rotation.x, blinkAngle, delta * 20);
+    this.upperEyelidR.rotation.x = THREE.MathUtils.lerp(this.upperEyelidR.rotation.x, blinkAngle, delta * 20);
+
+    // 4. Multi-Segmented Trailing Tail Physics
+    for (let i = 0; i < this.tailSegments.length; i++) {
+      const seg = this.tailSegments[i];
+      const tailFreq = 2.5;
+      seg.rotation.y = Math.sin(time * tailFreq - i * 0.5) * 0.16;
+      seg.rotation.x = Math.cos(time * 1.8 - i * 0.4) * 0.08 - 0.1;
+    }
+
+    // 5. Choreographed Move Execution
     switch (move) {
       case 'drums_stomp': {
-        // High-energy rhythmic double stomping, alternating shoulder hits & chest punch
+        // High-energy rhythmic double stomping with deep knee bend and roaring jaw
         const stompPhase = Math.sin(time * 10);
         const isLeftStomp = stompPhase > 0;
 
-        // Lift leg high then slam down with impact
         if (isLeftStomp) {
-          this.dancerLeftLeg.position.y = THREE.MathUtils.damp(this.dancerLeftLeg.position.y, Math.abs(stompPhase) * 0.45, 15, delta);
-          this.dancerLeftLeg.rotation.x = -Math.abs(stompPhase) * 0.6;
-          this.dancerRightLeg.position.y = THREE.MathUtils.damp(this.dancerRightLeg.position.y, 0, 15, delta);
-          this.dancerRightLeg.rotation.x = 0;
-          this.dancerSpine.rotation.z = 0.12; // shoulder hit right
+          this.leftThighGroup.position.y = THREE.MathUtils.damp(this.leftThighGroup.position.y, Math.abs(stompPhase) * 0.45, 16, delta);
+          this.leftThighGroup.rotation.x = -Math.abs(stompPhase) * 0.65;
+          this.rightThighGroup.position.y = THREE.MathUtils.damp(this.rightThighGroup.position.y, 0, 16, delta);
+          this.rightThighGroup.rotation.x = 0;
+          this.spineGroup.rotation.z = 0.14;
         } else {
-          this.dancerRightLeg.position.y = THREE.MathUtils.damp(this.dancerRightLeg.position.y, Math.abs(stompPhase) * 0.45, 15, delta);
-          this.dancerRightLeg.rotation.x = -Math.abs(stompPhase) * 0.6;
-          this.dancerLeftLeg.position.y = THREE.MathUtils.damp(this.dancerLeftLeg.position.y, 0, 15, delta);
-          this.dancerLeftLeg.rotation.x = 0;
-          this.dancerSpine.rotation.z = -0.12; // shoulder hit left
+          this.rightThighGroup.position.y = THREE.MathUtils.damp(this.rightThighGroup.position.y, Math.abs(stompPhase) * 0.45, 16, delta);
+          this.rightThighGroup.rotation.x = -Math.abs(stompPhase) * 0.65;
+          this.leftThighGroup.position.y = THREE.MathUtils.damp(this.leftThighGroup.position.y, 0, 16, delta);
+          this.leftThighGroup.rotation.x = 0;
+          this.spineGroup.rotation.z = -0.14;
         }
 
-        // Powerful chest punch & drumstick arms
-        this.dancerSpine.rotation.x = Math.sin(time * 10) * 0.25;
-        this.dancerLeftArm.rotation.x = Math.cos(time * 10) * 0.85 + 0.4;
-        this.dancerRightArm.rotation.x = -Math.cos(time * 10) * 0.85 + 0.4;
-        this.dancerHead.rotation.x = Math.sin(time * 10) * 0.25;
-        this.beatEaterGroup.position.y = Math.abs(Math.sin(time * 10)) * 0.16;
+        // Heavy chest punch & drumstick arms
+        this.spineGroup.rotation.x = Math.sin(time * 10) * 0.28;
+        this.leftUpperArm.rotation.x = Math.cos(time * 10) * 0.9 + 0.4;
+        this.rightUpperArm.rotation.x = -Math.cos(time * 10) * 0.9 + 0.4;
+        this.headGroup.rotation.x = Math.sin(time * 10) * 0.35 + this.currentHeadPitch;
+        this.headGroup.rotation.y = this.currentHeadYaw;
+        this.creatureRoot.position.y = Math.abs(Math.sin(time * 10)) * 0.18;
+
+        // Wide roaring jaw
+        this.lowerJawGroup.rotation.x = Math.abs(Math.sin(time * 10)) * 0.55;
         break;
       }
 
       case 'guitar_headbang': {
-        // Wide power-stance rock headbanging & air-guitar strumming
-        this.dancerLeftLeg.position.x = -0.65;
-        this.dancerRightLeg.position.x = 0.65;
-        this.dancerLeftLeg.rotation.z = -0.25;
-        this.dancerRightLeg.rotation.z = 0.25;
+        // Wide aggressive power-stance rock headbanging
+        this.leftThighGroup.position.x = -0.65;
+        this.rightThighGroup.position.x = 0.65;
+        this.leftThighGroup.rotation.z = -0.22;
+        this.rightThighGroup.rotation.z = 0.22;
 
-        // Deep aggressive headbang
         const headbang = Math.sin(time * 14);
-        this.dancerHead.rotation.x = headbang * 0.65;
-        this.dancerSpine.rotation.x = headbang * 0.38 + 0.18;
+        this.headGroup.rotation.x = headbang * 0.75 + this.currentHeadPitch;
+        this.headGroup.rotation.y = this.currentHeadYaw;
+        this.spineGroup.rotation.x = headbang * 0.42 + 0.18;
 
-        // Left arm grips guitar neck, right arm circles / strums with gusto
-        this.dancerLeftArm.rotation.set(-0.6, 0.45, -0.65);
-        this.dancerLeftForearm.rotation.set(-0.8, 0, 0.5);
-        this.dancerRightArm.rotation.x = Math.sin(time * 14) * 0.85;
-        this.dancerRightForearm.rotation.z = Math.cos(time * 14) * 0.55;
+        // Left hand grips neck, right arm strums aggressively
+        this.leftUpperArm.rotation.set(-0.65, 0.45, -0.65);
+        this.leftForearm.rotation.set(-0.85, 0, 0.5);
+        this.rightUpperArm.rotation.x = Math.sin(time * 14) * 0.9;
+        this.rightForearm.rotation.z = Math.cos(time * 14) * 0.6;
 
-        this.beatEaterGroup.position.y = Math.abs(Math.sin(time * 7)) * 0.12;
+        this.creatureRoot.position.y = Math.abs(Math.sin(time * 7)) * 0.12;
+        this.lowerJawGroup.rotation.x = Math.abs(headbang) * 0.4;
         break;
       }
 
       case 'piano_sway': {
-        // Elegant fluid lateral swaying & finger key ripples across dance floor
+        // Fluid lateral swaying & expressive sweeping arm arcs
         const sway = Math.sin(time * 3.5);
-        this.beatEaterGroup.position.x = sway * 0.55;
-        this.dancerSpine.rotation.z = -sway * 0.28;
-        this.dancerHead.rotation.z = sway * 0.22;
+        this.creatureRoot.position.x = sway * 0.55;
+        this.spineGroup.rotation.z = -sway * 0.3;
+        this.headGroup.rotation.z = sway * 0.24;
+        this.headGroup.rotation.y = this.currentHeadYaw;
+        this.headGroup.rotation.x = this.currentHeadPitch;
 
-        // Both arms extended in front rippling across piano keys
-        this.dancerLeftArm.rotation.set(-0.9, 0.2, -0.3 + Math.sin(time * 8) * 0.25);
-        this.dancerRightArm.rotation.set(-0.9, -0.2, 0.3 + Math.cos(time * 8) * 0.25);
-        this.dancerLeftForearm.rotation.x = -0.4 + Math.sin(time * 12) * 0.18;
-        this.dancerRightForearm.rotation.x = -0.4 + Math.cos(time * 12) * 0.18;
+        this.leftUpperArm.rotation.set(-0.95, 0.2, -0.3 + Math.sin(time * 8) * 0.25);
+        this.rightUpperArm.rotation.set(-0.95, -0.2, 0.3 + Math.cos(time * 8) * 0.25);
+        this.leftForearm.rotation.x = -0.45 + Math.sin(time * 12) * 0.2;
+        this.rightForearm.rotation.x = -0.45 + Math.cos(time * 12) * 0.2;
 
-        // Smooth gliding footwork
-        this.dancerLeftLeg.position.y = Math.sin(time * 3.5) * 0.1;
-        this.dancerRightLeg.position.y = -Math.sin(time * 3.5) * 0.1;
+        this.leftThighGroup.position.y = Math.sin(time * 3.5) * 0.12;
+        this.rightThighGroup.position.y = -Math.sin(time * 3.5) * 0.12;
+        this.lowerJawGroup.rotation.x = 0.08;
         break;
       }
 
       case 'trumpet_march': {
-        // High-stepping brass band parade march with fanfare strut and chest pop
+        // Triumphant parade march with high-knee struts and puffed chest
         const marchPhase = Math.sin(time * 6);
         const isLeftStep = marchPhase > 0;
 
         if (isLeftStep) {
-          this.dancerLeftLeg.position.y = Math.abs(marchPhase) * 0.55;
-          this.dancerLeftLeg.rotation.x = -Math.abs(marchPhase) * 0.7;
-          this.dancerRightLeg.position.y = 0;
-          this.dancerRightLeg.rotation.x = 0;
+          this.leftThighGroup.position.y = Math.abs(marchPhase) * 0.58;
+          this.leftThighGroup.rotation.x = -Math.abs(marchPhase) * 0.75;
+          this.rightThighGroup.position.y = 0;
+          this.rightThighGroup.rotation.x = 0;
         } else {
-          this.dancerRightLeg.position.y = Math.abs(marchPhase) * 0.55;
-          this.dancerRightLeg.rotation.x = -Math.abs(marchPhase) * 0.7;
-          this.dancerLeftLeg.position.y = 0;
-          this.dancerLeftLeg.rotation.x = 0;
+          this.rightThighGroup.position.y = Math.abs(marchPhase) * 0.58;
+          this.rightThighGroup.rotation.x = -Math.abs(marchPhase) * 0.75;
+          this.leftThighGroup.position.y = 0;
+          this.leftThighGroup.rotation.x = 0;
         }
 
-        // Both arms raised high holding brass trumpet to sky, chest popping
-        this.dancerLeftArm.rotation.set(-1.4, 0.3, -0.2);
-        this.dancerRightArm.rotation.set(-1.4, -0.3, 0.2);
-        this.dancerHead.rotation.x = -0.4 + Math.sin(time * 6) * 0.18;
-        this.dancerSpine.rotation.y = marchPhase * 0.25;
-        this.dancerSpine.rotation.x = -0.15 + Math.sin(time * 12) * 0.1; // chest pop
+        this.leftUpperArm.rotation.set(-1.45, 0.3, -0.2);
+        this.rightUpperArm.rotation.set(-1.45, -0.3, 0.2);
+        this.headGroup.rotation.x = -0.45 + Math.sin(time * 6) * 0.2 + this.currentHeadPitch;
+        this.headGroup.rotation.y = this.currentHeadYaw;
+        this.spineGroup.rotation.y = marchPhase * 0.25;
+        this.spineGroup.rotation.x = -0.16 + Math.sin(time * 12) * 0.12; // chest pop
 
-        this.beatEaterGroup.position.y = Math.abs(Math.sin(time * 6)) * 0.15;
+        this.creatureRoot.position.y = Math.abs(Math.sin(time * 6)) * 0.16;
+        this.lowerJawGroup.rotation.x = 0.25;
         break;
       }
 
       case 'violin_spin': {
-        // Graceful 360-degree pirouette spin with lyrical extension
-        this.beatEaterGroup.rotation.y += delta * 6.8;
+        // Elegant 360-degree pirouette spin on one foot with lyrical extension
+        this.creatureRoot.rotation.y += delta * 7.0;
 
-        // Left arm tucked like violin chin-rest, right arm drawing bow
-        this.dancerLeftArm.rotation.set(-1.1, 0.7, -0.5);
-        this.dancerRightArm.rotation.set(-0.8 + Math.sin(time * 8) * 0.45, -0.6, 0.35);
-        this.dancerSpine.rotation.z = Math.sin(time * 4) * 0.22;
-        this.beatEaterGroup.position.y = 0.28 + Math.sin(time * 6) * 0.12;
+        this.leftUpperArm.rotation.set(-1.15, 0.75, -0.5);
+        this.rightUpperArm.rotation.set(-0.85 + Math.sin(time * 8) * 0.45, -0.6, 0.35);
+        this.spineGroup.rotation.z = Math.sin(time * 4) * 0.22;
+        this.creatureRoot.position.y = 0.32 + Math.sin(time * 6) * 0.12;
+        this.lowerJawGroup.rotation.x = 0.12;
         break;
       }
 
       case 'dj_bassdrop': {
-        // Breakdance / hip-hop drop into freeze, turntable scratch shuffle & robot pop
+        // Breakdance drop squat into freeze & turntable scratch
         const bounce = Math.sin(time * 8);
         const isDropping = (time % 2.0) > 1.1;
 
         if (isDropping) {
-          // Deep breakdance drop squat freeze
-          this.beatEaterGroup.position.y = THREE.MathUtils.damp(this.beatEaterGroup.position.y, -0.35, 12, delta);
-          this.dancerLeftLeg.position.x = -0.7;
-          this.dancerRightLeg.position.x = 0.7;
-          this.dancerSpine.rotation.x = 0.45;
-          this.dancerLeftArm.rotation.set(-1.25, 0.8, -0.6); // Hand on headphone
-          this.dancerRightArm.rotation.set(-0.7, -0.5, 0.85); // Scratch turntable
+          this.creatureRoot.position.y = THREE.MathUtils.damp(this.creatureRoot.position.y, -0.35, 12, delta);
+          this.leftThighGroup.position.x = -0.7;
+          this.rightThighGroup.position.x = 0.7;
+          this.spineGroup.rotation.x = 0.48;
+          this.leftUpperArm.rotation.set(-1.25, 0.8, -0.6);
+          this.rightUpperArm.rotation.set(-0.75, -0.5, 0.9);
         } else {
-          // Upright electro bounce and robot pop
-          this.beatEaterGroup.position.y = Math.abs(bounce) * 0.24;
-          this.dancerLeftArm.rotation.x = Math.sin(time * 8) * 0.75;
-          this.dancerRightArm.rotation.x = -Math.sin(time * 8) * 0.75;
-          this.dancerHead.rotation.y = Math.sin(time * 4) * 0.35;
+          this.creatureRoot.position.y = Math.abs(bounce) * 0.26;
+          this.leftUpperArm.rotation.x = Math.sin(time * 8) * 0.78;
+          this.rightUpperArm.rotation.x = -Math.sin(time * 8) * 0.78;
+          this.headGroup.rotation.y = Math.sin(time * 4) * 0.35 + this.currentHeadYaw;
         }
+        this.lowerJawGroup.rotation.x = Math.abs(bounce) * 0.3;
         break;
       }
 
       case 'missed_stumble': {
-        // Stumble backwards, flail arms, tilt head and shake
+        // Stumble backwards off-balance
         const wobble = Math.sin(time * 18);
-        
-        // Torso tilts backward and wavers off-balance
-        this.dancerSpine.rotation.x = -0.4 + wobble * 0.08;
-        this.dancerSpine.rotation.z = Math.sin(time * 12) * 0.22;
-        this.dancerHead.rotation.x = 0.25 + wobble * 0.12;
-        this.dancerHead.rotation.y = Math.sin(time * 15) * 0.3; // head shake
+        this.spineGroup.rotation.x = -0.42 + wobble * 0.08;
+        this.spineGroup.rotation.z = Math.sin(time * 12) * 0.24;
+        this.headGroup.rotation.x = 0.26 + wobble * 0.12;
+        this.headGroup.rotation.y = Math.sin(time * 15) * 0.32;
 
-        // Arms flail outward to regain balance
-        this.dancerLeftArm.rotation.set(-0.6, 0.5, -0.9 + wobble * 0.15);
-        this.dancerRightArm.rotation.set(-0.6, -0.5, 0.9 - wobble * 0.15);
-        this.dancerLeftForearm.rotation.x = -0.6;
-        this.dancerRightForearm.rotation.x = -0.6;
-
-        // One leg slips forward
-        this.dancerLeftLeg.position.z = 0.35;
-        this.dancerLeftLeg.rotation.x = -0.35;
-        this.dancerRightLeg.position.z = -0.2;
-        this.dancerRightLeg.rotation.x = 0.2;
-
-        this.beatEaterGroup.position.z = -0.3;
-        this.beatEaterGroup.position.y = -0.06;
+        this.leftUpperArm.rotation.set(-0.6, 0.5, -0.9 + wobble * 0.15);
+        this.rightUpperArm.rotation.set(-0.6, -0.5, 0.9 - wobble * 0.15);
+        this.creatureRoot.position.z = -0.32;
+        this.creatureRoot.position.y = -0.06;
+        this.lowerJawGroup.rotation.x = 0.45;
         break;
       }
 
       case 'fever_dance': {
-        // High-energy fast electro dance: rapid steps, double-time bob, arm waves & jumps
         const feverBeat = Math.sin(time * 16);
-        const jump = Math.abs(Math.sin(time * 8)) * 0.45;
-        this.beatEaterGroup.position.y = jump;
-        this.beatEaterGroup.rotation.y = Math.sin(time * 4) * 0.5;
+        const jump = Math.abs(Math.sin(time * 8)) * 0.48;
+        this.creatureRoot.position.y = jump;
+        this.creatureRoot.rotation.y = Math.sin(time * 4) * 0.5;
 
-        // Torso dynamic pulse
-        this.dancerSpine.rotation.x = feverBeat * 0.2;
-        this.dancerSpine.rotation.z = Math.cos(time * 8) * 0.18;
-        this.dancerHead.rotation.x = -feverBeat * 0.25;
+        this.spineGroup.rotation.x = feverBeat * 0.22;
+        this.spineGroup.rotation.z = Math.cos(time * 8) * 0.18;
+        this.headGroup.rotation.x = -feverBeat * 0.25 + this.currentHeadPitch;
+        this.headGroup.rotation.y = this.currentHeadYaw;
 
-        // Rapid techno waves with arms
-        this.dancerLeftArm.rotation.set(-1.1 + Math.sin(time * 16) * 0.6, 0.3, -0.4);
-        this.dancerRightArm.rotation.set(-1.1 - Math.sin(time * 16) * 0.6, -0.3, 0.4);
-        this.dancerLeftForearm.rotation.x = -0.5 + Math.cos(time * 16) * 0.4;
-        this.dancerRightForearm.rotation.x = -0.5 - Math.cos(time * 16) * 0.4;
-
-        // Alternating rapid shuffle kicks
-        if (feverBeat > 0) {
-          this.dancerLeftLeg.position.y = feverBeat * 0.35;
-          this.dancerLeftLeg.rotation.x = -feverBeat * 0.5;
-          this.dancerRightLeg.position.y = 0;
-          this.dancerRightLeg.rotation.x = 0.1;
-        } else {
-          this.dancerRightLeg.position.y = -feverBeat * 0.35;
-          this.dancerRightLeg.rotation.x = feverBeat * 0.5;
-          this.dancerLeftLeg.position.y = 0;
-          this.dancerLeftLeg.rotation.x = 0.1;
-        }
+        this.leftUpperArm.rotation.set(-1.15 + Math.sin(time * 16) * 0.65, 0.3, -0.4);
+        this.rightUpperArm.rotation.set(-1.15 - Math.sin(time * 16) * 0.65, -0.3, 0.4);
+        this.lowerJawGroup.rotation.x = Math.abs(feverBeat) * 0.4;
         break;
       }
 
       case 'super_thunder':
       case 'super_storm':
       case 'super_drop': {
-        // Signature super acrobatics: Leaping levitation & cosmic spin
-        this.beatEaterGroup.position.y = 0.45 + Math.sin(time * 8) * 0.28;
-        this.beatEaterGroup.rotation.y += delta * 4.5;
-        this.dancerLeftArm.rotation.set(-1.6, 0.5, -0.5);
-        this.dancerRightArm.rotation.set(-1.6, -0.5, 0.5);
-        this.dancerSpine.rotation.x = Math.sin(time * 8) * 0.25;
+        this.creatureRoot.position.y = 0.5 + Math.sin(time * 8) * 0.32;
+        this.creatureRoot.rotation.y += delta * 5.0;
+        this.leftUpperArm.rotation.set(-1.6, 0.5, -0.5);
+        this.rightUpperArm.rotation.set(-1.6, -0.5, 0.5);
+        this.spineGroup.rotation.x = Math.sin(time * 8) * 0.28;
+        this.lowerJawGroup.rotation.x = 0.6;
         break;
       }
 
       case 'idle':
       default: {
-        // Smooth groovy idle: rhythmic bobbing to 124 BPM beat
+        // Groovy idle bobbing to 120 BPM tempo
         const idleBeat = Math.sin(beatTime);
-        this.beatEaterGroup.position.y = THREE.MathUtils.damp(this.beatEaterGroup.position.y, Math.abs(idleBeat) * 0.08, 10, delta);
-        this.beatEaterGroup.position.x = THREE.MathUtils.damp(this.beatEaterGroup.position.x, 0, 8, delta);
-        this.beatEaterGroup.position.z = THREE.MathUtils.damp(this.beatEaterGroup.position.z, 0, 8, delta);
-        this.beatEaterGroup.rotation.y = THREE.MathUtils.damp(this.beatEaterGroup.rotation.y, 0, 8, delta);
+        this.creatureRoot.position.y = THREE.MathUtils.damp(this.creatureRoot.position.y, Math.abs(idleBeat) * 0.08, 10, delta);
+        this.creatureRoot.position.x = THREE.MathUtils.damp(this.creatureRoot.position.x, 0, 8, delta);
+        this.creatureRoot.position.z = THREE.MathUtils.damp(this.creatureRoot.position.z, 0, 8, delta);
+        this.creatureRoot.rotation.y = THREE.MathUtils.damp(this.creatureRoot.rotation.y, 0, 8, delta);
 
-        this.dancerSpine.rotation.x = THREE.MathUtils.damp(this.dancerSpine.rotation.x, idleBeat * 0.08, 10, delta);
-        this.dancerSpine.rotation.z = THREE.MathUtils.damp(this.dancerSpine.rotation.z, Math.sin(time * 2) * 0.04, 10, delta);
-        this.dancerHead.rotation.x = THREE.MathUtils.damp(this.dancerHead.rotation.x, -idleBeat * 0.06, 10, delta);
-        this.dancerHead.rotation.y = THREE.MathUtils.damp(this.dancerHead.rotation.y, 0, 10, delta);
+        this.spineGroup.rotation.x = THREE.MathUtils.damp(this.spineGroup.rotation.x, idleBeat * 0.08, 10, delta);
+        this.spineGroup.rotation.z = THREE.MathUtils.damp(this.spineGroup.rotation.z, Math.sin(time * 2) * 0.04, 10, delta);
+        this.headGroup.rotation.x = THREE.MathUtils.damp(this.headGroup.rotation.x, -idleBeat * 0.06 + this.currentHeadPitch, 10, delta);
+        this.headGroup.rotation.y = THREE.MathUtils.damp(this.headGroup.rotation.y, this.currentHeadYaw, 10, delta);
 
-        // Arms resting naturally with subtle sway
-        this.dancerLeftArm.rotation.x = THREE.MathUtils.damp(this.dancerLeftArm.rotation.x, Math.sin(time * 2.5) * 0.12, 10, delta);
-        this.dancerRightArm.rotation.x = THREE.MathUtils.damp(this.dancerRightArm.rotation.x, -Math.sin(time * 2.5) * 0.12, 10, delta);
-        this.dancerLeftArm.rotation.z = THREE.MathUtils.damp(this.dancerLeftArm.rotation.z, -0.2, 10, delta);
-        this.dancerRightArm.rotation.z = THREE.MathUtils.damp(this.dancerRightArm.rotation.z, 0.2, 10, delta);
+        this.leftUpperArm.rotation.x = THREE.MathUtils.damp(this.leftUpperArm.rotation.x, Math.sin(time * 2.5) * 0.12, 10, delta);
+        this.rightUpperArm.rotation.x = THREE.MathUtils.damp(this.rightUpperArm.rotation.x, -Math.sin(time * 2.5) * 0.12, 10, delta);
+        this.leftUpperArm.rotation.z = THREE.MathUtils.damp(this.leftUpperArm.rotation.z, -0.22, 10, delta);
+        this.rightUpperArm.rotation.z = THREE.MathUtils.damp(this.rightUpperArm.rotation.z, 0.22, 10, delta);
 
-        this.dancerLeftLeg.position.set(-0.45, 0, 0);
-        this.dancerRightLeg.position.set(0.45, 0, 0);
-        this.dancerLeftLeg.rotation.set(0, 0, 0);
-        this.dancerRightLeg.rotation.set(0, 0, 0);
+        this.leftThighGroup.position.set(-0.48, -0.05, 0);
+        this.rightThighGroup.position.set(0.48, -0.05, 0);
+        this.leftThighGroup.rotation.set(0, 0, 0);
+        this.rightThighGroup.rotation.set(0, 0, 0);
+
+        this.lowerJawGroup.rotation.x = THREE.MathUtils.damp(this.lowerJawGroup.rotation.x, 0.05, 8, delta);
         break;
       }
-    }
-
-    // Biomechanical jaw rhythmic chomp
-    if (this.dancerJaw) {
-      this.dancerJaw.position.y = -0.32 - Math.abs(Math.sin(time * 5)) * 0.1;
     }
   }
 
@@ -1027,15 +1376,11 @@ export class GameArena {
     // 1. Dance & Animation Update
     this.updateMonsterDance(delta, elapsedTime);
 
-    // Boss & Rhythm Breaker secondary ambient animations
-    if (this.currentStage === 'stage_2_rhythm_breaker' && this.rhythmBreakerGroup?.visible) {
-      this.rhythmBreakerGroup.position.y = Math.sin(elapsedTime * 2.5) * 0.08;
-      if (this.rhythmShield) {
-        this.rhythmShield.rotation.z = Math.sin(elapsedTime * 1.5) * 0.15;
-        this.rhythmShield.scale.lerp(this._v1.set(1, 1, 1), delta * 8);
-      }
-    } else if (this.currentStage === 'stage_3_music_destroyer' && this.bossGroup?.visible) {
-      this.bossGroup.position.y = Math.sin(elapsedTime * 2.0) * 0.2;
+    // 2. Boss & Stage ambient props
+    if (this.currentStage === 'stage_2_rhythm_breaker' && this.rhythmShield?.visible) {
+      this.rhythmShield.rotation.z = Math.sin(elapsedTime * 1.5) * 0.15;
+      this.rhythmShield.scale.lerp(this._v1.set(1, 1, 1), delta * 8);
+    } else if (this.currentStage === 'stage_3_music_destroyer') {
       this.bossOrbitRings.forEach((ring, idx) => {
         const speed = (idx + 1) * 0.7 * (idx % 2 === 0 ? 1 : -1);
         ring.rotation.x += delta * speed;
@@ -1043,12 +1388,12 @@ export class GameArena {
       });
     }
 
-    // Strobe decay
+    // 3. Strobe decay
     if (this.strobeLight.intensity > 0) {
       this.strobeLight.intensity = THREE.MathUtils.damp(this.strobeLight.intensity, 0, 8, delta);
     }
 
-    // 2. Projectiles update
+    // 4. Projectiles update
     for (let i = this.activeProjectiles.length - 1; i >= 0; i--) {
       const p = this.activeProjectiles[i];
       p.progress += delta * p.speed;
@@ -1062,7 +1407,7 @@ export class GameArena {
       }
     }
 
-    // 3. Particles update
+    // 5. Particles update
     if (this.impactParticles) {
       let activeCount = 0;
       for (let i = 0; i < this.MAX_PARTICLES; i++) {
@@ -1081,7 +1426,7 @@ export class GameArena {
       }
     }
 
-    // 4. Camera Screen Shake
+    // 6. Camera Screen Shake
     let camOffsetX = 0;
     let camOffsetY = 0;
     if (this.screenShakeIntensity > 0.005) {
@@ -1090,9 +1435,9 @@ export class GameArena {
       this.screenShakeIntensity = THREE.MathUtils.damp(this.screenShakeIntensity, 0, 6, delta);
     }
     this.camera.position.x = THREE.MathUtils.damp(this.camera.position.x, camOffsetX, 10, delta);
-    this.camera.position.y = THREE.MathUtils.damp(this.camera.position.y, 1.8 + camOffsetY, 10, delta);
+    this.camera.position.y = THREE.MathUtils.damp(this.camera.position.y, 1.85 + camOffsetY, 10, delta);
 
-    // 5. Render Scene
+    // 7. Render
     this.renderer.render(this.scene, this.camera);
   };
 

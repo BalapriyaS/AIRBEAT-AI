@@ -1,7 +1,8 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { Disc, Drum, Music, Volume2, Zap } from 'lucide-react';
+import { Activity, Disc, Drum, Music, Volume2, Zap } from 'lucide-react';
 import { InstrumentId, TrackedHand } from '../types/game';
 import { INSTRUMENT_LIST } from '../game/instrumentsConfig';
+import { audioEngine } from '../audio/AudioEngine';
 
 interface InstrumentPadsProps {
   hands: TrackedHand[];
@@ -16,7 +17,17 @@ export const InstrumentPads: React.FC<InstrumentPadsProps> = ({
 }) => {
   const [activeAnimId, setActiveAnimId] = useState<InstrumentId | null>(null);
   const [hoveredMouseId, setHoveredMouseId] = useState<InstrumentId | null>(null);
+  const [activeSolo, setActiveSolo] = useState<InstrumentId | null>(null);
   const lastActivationTime = useRef<number>(0);
+
+  // Poll active instrument solo state from AudioEngine for visualizer animation
+  useEffect(() => {
+    const timer = window.setInterval(() => {
+      const active = audioEngine.getActiveInstrument();
+      setActiveSolo(active);
+    }, 100);
+    return () => clearInterval(timer);
+  }, []);
 
   // Check which instruments are currently hovered by tracked hands
   const hoveredByHandSet = new Set<InstrumentId>();
@@ -28,15 +39,15 @@ export const InstrumentPads: React.FC<InstrumentPadsProps> = ({
 
   const handlePadTrigger = (id: InstrumentId, variation: number = 0.5) => {
     const now = performance.now();
-    // 200ms debounce cooldown
-    if (now - lastActivationTime.current < 200) return;
+    // 250ms debounce cooldown
+    if (now - lastActivationTime.current < 250) return;
     lastActivationTime.current = now;
 
     setActiveAnimId(id);
     onActivateInstrument(id, variation);
     setTimeout(() => {
       setActiveAnimId((curr) => (curr === id ? null : curr));
-    }, 350);
+    }, 450);
   };
 
   const renderIcon = (name: string, className: string) => {
@@ -70,7 +81,7 @@ export const InstrumentPads: React.FC<InstrumentPadsProps> = ({
         const isHovered = hoveredByHandSet.has(inst.id) || hoveredMouseId === inst.id;
         const isPulsing = activeAnimId === inst.id;
         const isRequired = requiredInstrument === inst.id;
-        const isDJ = inst.id === 'dj';
+        const isPlayingSolo = activeSolo === inst.id;
 
         return (
           <div
@@ -87,18 +98,20 @@ export const InstrumentPads: React.FC<InstrumentPadsProps> = ({
               onMouseLeave={() => setHoveredMouseId(null)}
               className={`group relative flex flex-col items-center justify-center w-24 h-24 sm:w-28 sm:h-28 rounded-full border-2 transition-all duration-200 cursor-pointer select-none backdrop-blur-md focus:outline-hidden ${
                 isRequired
-                  ? 'border-amber-400 bg-amber-950/75 shadow-lg shadow-amber-500/50 scale-110'
+                  ? 'border-amber-400 bg-amber-950/80 shadow-xl shadow-amber-500/50 scale-110 animate-pulse'
                   : isPulsing
                   ? 'scale-120 border-white bg-slate-800 shadow-2xl'
+                  : isPlayingSolo
+                  ? 'border-cyan-300 bg-cyan-950/70 shadow-lg shadow-cyan-500/40 scale-105'
                   : isHovered
                   ? `border-white bg-slate-900/95 scale-110 ${inst.glowClass}`
-                  : `border-slate-700/80 bg-slate-950/70 hover:scale-105 hover:border-slate-400`
+                  : `border-slate-700/80 bg-slate-950/75 hover:scale-105 hover:border-slate-400`
               }`}
             >
               {/* Outer Rotating Target Ring */}
               <div
                 className={`absolute inset-[-6px] rounded-full border border-dashed transition-all duration-500 pointer-events-none ${
-                  isHovered || isRequired || isPulsing
+                  isHovered || isRequired || isPulsing || isPlayingSolo
                     ? 'border-cyan-400 opacity-100 rotate-45'
                     : 'border-slate-600/40 opacity-40'
                 }`}
@@ -117,14 +130,14 @@ export const InstrumentPads: React.FC<InstrumentPadsProps> = ({
                 />
               )}
 
-              {/* DJ Mixer Audio-Reactive Equalizer Waveform Bars */}
-              {isDJ && (isPulsing || isHovered) ? (
-                <div className="flex items-end gap-1 h-8 sm:h-9 mb-1">
-                  <span className="w-1 bg-emerald-400 rounded-full animate-pulse h-4" />
-                  <span className="w-1 bg-emerald-300 rounded-full animate-pulse h-7 delay-75" />
-                  <span className="w-1 bg-emerald-400 rounded-full animate-pulse h-8 delay-150" />
-                  <span className="w-1 bg-emerald-300 rounded-full animate-pulse h-5 delay-100" />
-                  <span className="w-1 bg-emerald-400 rounded-full animate-pulse h-3 delay-200" />
+              {/* Audio-Reactive Waveform Bars if playing 5-second solo */}
+              {isPlayingSolo ? (
+                <div className="flex items-end gap-1 h-7 sm:h-8 mb-1">
+                  <span className="w-1 bg-cyan-300 rounded-full animate-pulse h-4" />
+                  <span className="w-1 bg-cyan-200 rounded-full animate-pulse h-7 delay-75" />
+                  <span className="w-1 bg-cyan-400 rounded-full animate-pulse h-8 delay-150" />
+                  <span className="w-1 bg-cyan-200 rounded-full animate-pulse h-5 delay-100" />
+                  <span className="w-1 bg-cyan-300 rounded-full animate-pulse h-3 delay-200" />
                 </div>
               ) : (
                 /* Standard Icon */
@@ -148,7 +161,7 @@ export const InstrumentPads: React.FC<InstrumentPadsProps> = ({
 
             {/* Hover Tooltip / Subtitle */}
             <div
-              className={`absolute top-full left-1/2 -translate-x-1/2 mt-2 px-2.5 py-1 rounded bg-black/85 backdrop-blur-md border border-cyan-500/40 text-center whitespace-nowrap transition-all duration-200 pointer-events-none z-30 ${
+              className={`absolute top-full left-1/2 -translate-x-1/2 mt-2 px-2.5 py-1 rounded-lg bg-black/90 backdrop-blur-md border border-cyan-500/40 text-center whitespace-nowrap transition-all duration-200 pointer-events-none z-30 shadow-xl ${
                 isHovered || isRequired ? 'opacity-100 translate-y-0' : 'opacity-0 translate-y-1'
               }`}
             >

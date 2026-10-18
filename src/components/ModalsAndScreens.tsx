@@ -318,19 +318,43 @@ export const GameOverScreen: React.FC<{ stats: GameStats; onReplay: () => void }
           The 3-minute round ended! Outstanding dance moves in the arena.
         </p>
 
-        <div className="w-full p-4 rounded-xl bg-slate-900/80 border border-rose-500/40 mb-6">
-          <div className="text-xs text-slate-400 font-mono-tech uppercase">TOTAL SCORE</div>
-          <div className="text-3xl font-heading font-extrabold text-cyan-400 my-1">
-            {stats.score.toLocaleString()}
+        <div className="w-full max-w-sm grid grid-cols-2 gap-2.5 mb-6">
+          <div className="p-3 rounded-xl bg-slate-900/80 border border-slate-700">
+            <div className="text-[10px] text-slate-400 font-mono-tech uppercase">FINAL SCORE</div>
+            <div className="text-2xl font-heading font-extrabold text-cyan-400">
+              {stats.score.toLocaleString()}
+            </div>
           </div>
-          <div className="text-sm font-heading font-semibold text-amber-300">
-            RANK: {stats.rankTitle}
+
+          <div className="p-3 rounded-xl bg-slate-900/80 border border-slate-700">
+            <div className="text-[10px] text-slate-400 font-mono-tech uppercase">MAX COMBO</div>
+            <div className="text-2xl font-heading font-extrabold text-amber-400">
+              x{stats.maxCombo}
+            </div>
           </div>
+
+          <div className="p-3 rounded-xl bg-slate-900/80 border border-slate-700">
+            <div className="text-[10px] text-slate-400 font-mono-tech uppercase">PERFECT HITS</div>
+            <div className="text-2xl font-heading font-extrabold text-emerald-400">
+              {stats.perfectHits}
+            </div>
+          </div>
+
+          <div className="p-3 rounded-xl bg-slate-900/80 border border-slate-700">
+            <div className="text-[10px] text-slate-400 font-mono-tech uppercase">MISS COUNT</div>
+            <div className="text-2xl font-heading font-extrabold text-rose-400">
+              {stats.missCount}
+            </div>
+          </div>
+        </div>
+
+        <div className="mb-6 px-4 py-1.5 rounded-full bg-cyan-950/80 border border-cyan-500/50 text-cyan-300 font-heading font-bold text-sm tracking-wider">
+          FINAL RANK: {stats.rankTitle}
         </div>
 
         <button
           onClick={onReplay}
-          className="w-full py-3.5 rounded-xl bg-cyan-600 hover:bg-cyan-500 text-white font-heading font-bold text-base tracking-wider flex items-center justify-center gap-2 cursor-pointer transition-colors"
+          className="w-full py-3.5 rounded-xl bg-gradient-to-r from-cyan-500 to-blue-600 hover:from-cyan-400 hover:to-blue-500 text-white font-heading font-bold text-base tracking-wider flex items-center justify-center gap-2 cursor-pointer transition-all transform hover:scale-105 active:scale-95 shadow-lg shadow-cyan-500/30"
         >
           <RotateCcw className="w-5 h-5" />
           <span>TRY AGAIN</span>
