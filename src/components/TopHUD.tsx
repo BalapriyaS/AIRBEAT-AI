@@ -133,8 +133,22 @@ export const TopHUD: React.FC<TopHUDProps> = ({
           </div>
 
           <div className="flex items-center justify-between text-[9px] sm:text-[10px] font-mono-tech text-slate-400 mt-1">
-            <span>{monster.title}</span>
-            <span className="text-cyan-400">TARGET: 100% TO MASTER</span>
+            <span className="truncate">{monster.title}</span>
+            <div className="flex items-center gap-1.5 text-purple-300 shrink-0">
+              <Sparkles className="w-3 h-3 text-purple-400" />
+              <span>
+                SUPER:{' '}
+                <strong
+                  className={
+                    superAttackGauge >= 50
+                      ? 'text-amber-300 font-bold animate-pulse'
+                      : 'text-purple-300'
+                  }
+                >
+                  {superAttackGauge >= 50 ? 'READY (PINCH 2)' : `${superAttackGauge}%`}
+                </strong>
+              </span>
+            </div>
           </div>
         </div>
 
@@ -168,29 +182,29 @@ export const TopHUD: React.FC<TopHUDProps> = ({
 
       {/* Active 5-Second Solo Indicator Badge */}
       {activeSolo && (
-        <div className="mt-2 flex items-center gap-2 px-3 py-1 rounded-full bg-slate-950/90 border border-cyan-400/70 shadow-lg text-cyan-300 text-[11px] font-mono-tech pointer-events-auto animate-pulse">
-          <span className="w-2 h-2 rounded-full bg-cyan-400 animate-ping" />
-          <span>SOLO PLAYING: <strong>{INSTRUMENTS[activeSolo].name}</strong></span>
-          <div className="flex items-end gap-0.5 h-3">
+        <div className="mt-1 flex items-center gap-2 px-3 py-0.5 rounded-full bg-slate-950/90 border border-cyan-400/70 shadow-lg text-cyan-300 text-[10px] font-mono-tech pointer-events-auto animate-pulse">
+          <span className="w-1.5 h-1.5 rounded-full bg-cyan-400 animate-ping" />
+          <span>SOLO: <strong>{INSTRUMENTS[activeSolo].name}</strong></span>
+          <div className="flex items-end gap-0.5 h-2.5">
             <span className="w-0.5 bg-cyan-400 h-2 animate-pulse" />
-            <span className="w-0.5 bg-cyan-400 h-3 animate-pulse delay-75" />
+            <span className="w-0.5 bg-cyan-400 h-2.5 animate-pulse delay-75" />
             <span className="w-0.5 bg-cyan-400 h-1.5 animate-pulse delay-150" />
           </div>
         </div>
       )}
 
-      {/* 2. RHYTHM CHALLENGE PROMPT BANNER */}
+      {/* 2. Compact Rhythm Challenge Prompt Banner */}
       {currentChallenge && targetInst && (
-        <div className="w-full max-w-lg mt-2 bg-black/85 backdrop-blur-lg px-4 py-2 sm:py-2.5 rounded-2xl border-2 border-amber-400/80 shadow-2xl flex flex-col items-center pointer-events-auto">
+        <div className="w-full max-w-md mt-1.5 bg-black/90 backdrop-blur-md px-3.5 py-1.5 rounded-xl border border-amber-400/80 shadow-2xl flex flex-col items-center pointer-events-auto">
           <div className="w-full flex items-center justify-between gap-2">
-            <div className="flex items-center gap-2">
+            <div className="flex items-center gap-2 truncate">
               <span
                 style={{ backgroundColor: `${targetInst.color}35`, borderColor: targetInst.color }}
-                className="px-2.5 py-0.5 rounded-md border text-xs font-heading font-black tracking-widest uppercase text-white shadow"
+                className="px-2 py-0.5 rounded border text-[11px] font-heading font-black tracking-wider uppercase text-white shadow"
               >
                 {targetInst.name}
               </span>
-              <span className="text-xs sm:text-sm font-heading font-bold text-amber-200 tracking-wide">
+              <span className="text-xs font-heading font-bold text-amber-200 tracking-wide truncate">
                 {currentChallenge.instruction}
               </span>
             </div>
@@ -200,7 +214,7 @@ export const TopHUD: React.FC<TopHUDProps> = ({
           </div>
 
           {/* Rhythm Countdown Beat Bar */}
-          <div className="w-full h-1.5 mt-2 rounded-full bg-slate-800 overflow-hidden">
+          <div className="w-full h-1 mt-1.5 rounded-full bg-slate-800 overflow-hidden">
             <div
               style={{
                 width: `${challengeProgress * 100}%`,
@@ -212,11 +226,11 @@ export const TopHUD: React.FC<TopHUDProps> = ({
         </div>
       )}
 
-      {/* 3. Floating Judgment Feedback Badge (PERFECT, GREAT, MISS, FEVER) */}
+      {/* 3. Non-Pushing Floating Judgment Feedback Overlay */}
       {judgmentFeedback && (
         <div
           key={judgmentFeedback.id}
-          className={`mt-2 px-5 py-1.5 rounded-xl font-heading font-black text-sm sm:text-base tracking-widest shadow-2xl animate-bounce backdrop-blur-md border ${
+          className={`fixed top-24 left-1/2 -translate-x-1/2 px-5 py-1.5 rounded-xl font-heading font-black text-sm sm:text-base tracking-widest shadow-2xl animate-bounce backdrop-blur-md border pointer-events-none z-30 ${
             judgmentFeedback.rating === 'FEVER'
               ? 'bg-gradient-to-r from-amber-500/90 to-fuchsia-600/90 text-white border-amber-300 scale-110'
               : judgmentFeedback.rating === 'PERFECT'
@@ -230,30 +244,9 @@ export const TopHUD: React.FC<TopHUDProps> = ({
         </div>
       )}
 
-      {/* 4. Super Attack Energy Gauge */}
-      <div className="w-full max-w-sm mt-2 flex items-center gap-2 bg-black/60 backdrop-blur-sm px-3 py-1 rounded-full border border-purple-500/30">
-        <Sparkles className="w-3.5 h-3.5 text-purple-400" />
-        <span className="text-[9px] font-mono-tech text-purple-300 tracking-wider whitespace-nowrap">
-          SUPER DANCE
-        </span>
-        <div className="flex-1 h-2 bg-slate-900 rounded-full overflow-hidden border border-purple-500/40">
-          <div
-            className={`h-full transition-all duration-300 rounded-full ${
-              superAttackGauge >= 50
-                ? 'bg-gradient-to-r from-purple-500 via-fuchsia-400 to-cyan-400 animate-pulse'
-                : 'bg-purple-600'
-            }`}
-            style={{ width: `${superAttackGauge}%` }}
-          />
-        </div>
-        <span className="text-[9px] font-mono-tech text-purple-300 whitespace-nowrap">
-          {superAttackGauge >= 50 ? 'READY (PINCH 2)' : `${superAttackGauge}%`}
-        </span>
-      </div>
-
-      {/* 5. Central Announcement Banner */}
+      {/* 4. Non-Pushing Floating Announcement Overlay */}
       {activePrompt && (
-        <div className="mt-2 px-4 py-1.5 rounded-lg bg-black/90 backdrop-blur-md border border-cyan-400/80 text-cyan-200 text-xs sm:text-sm font-heading font-bold tracking-wide shadow-2xl text-center animate-bounce">
+        <div className="fixed top-36 left-1/2 -translate-x-1/2 px-5 py-2 rounded-xl bg-black/95 backdrop-blur-md border-2 border-cyan-400 text-cyan-200 text-xs sm:text-sm font-heading font-bold tracking-wide shadow-2xl text-center pointer-events-none z-30 animate-pulse">
           {activePrompt}
         </div>
       )}

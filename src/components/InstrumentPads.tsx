@@ -159,10 +159,12 @@ export const InstrumentPads: React.FC<InstrumentPadsProps> = ({
               </span>
             </button>
 
-            {/* Hover Tooltip / Subtitle */}
+            {/* Hover Tooltip / Subtitle (Anchored inward towards center arena) */}
             <div
-              className={`absolute top-full left-1/2 -translate-x-1/2 mt-2 px-2.5 py-1 rounded-lg bg-black/90 backdrop-blur-md border border-cyan-500/40 text-center whitespace-nowrap transition-all duration-200 pointer-events-none z-30 shadow-xl ${
-                isHovered || isRequired ? 'opacity-100 translate-y-0' : 'opacity-0 translate-y-1'
+              className={`absolute top-1/2 -translate-y-1/2 ${
+                inst.side === 'left' ? 'left-full ml-3 text-left' : 'right-full mr-3 text-right'
+              } px-3 py-1.5 rounded-lg bg-black/95 backdrop-blur-md border border-cyan-500/50 whitespace-nowrap transition-all duration-200 pointer-events-none z-30 shadow-2xl ${
+                isHovered || isRequired ? 'opacity-100 scale-100' : 'opacity-0 scale-95'
               }`}
             >
               <p className="text-[11px] font-semibold text-cyan-300 tracking-wide uppercase font-heading">

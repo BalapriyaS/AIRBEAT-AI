@@ -86,12 +86,50 @@ export const CameraHandView: React.FC<CameraHandViewProps> = ({
 
         streamRef.current = stream;
 
-        if (videoRef.current) {
-          videoRef.current.srcObject = stream;
-          await videoRef.current.play();
-          handTracker.setVideoSource(videoRef.current);
+        const video = videoRef.current;
+        if (video) {
+          video.srcObject = stream;
+          video.muted = true;
+          video.defaultMuted = true;
+          video.playsInline = true;
+          video.setAttribute('playsinline', '');
+          video.setAttribute('webkit-playsinline', '');
+          video.setAttribute('muted', '');
+
+          // Wait for video metadata to ensure dimensions are valid before play
+          await new Promise<void>((resolve) => {
+            if (video.readyState >= 2 && video.videoWidth > 0) {
+              resolve();
+            } else {
+              const onLoaded = () => {
+                video.removeEventListener('loadeddata', onLoaded);
+                video.removeEventListener('loadedmetadata', onLoaded);
+                resolve();
+              };
+              video.addEventListener('loadeddata', onLoaded);
+              video.addEventListener('loadedmetadata', onLoaded);
+              setTimeout(resolve, 800);
+            }
+          });
+
+          try {
+            await video.play();
+          } catch (playErr) {
+            console.warn('[AIRBEAT AI] video.play() waiting for interaction:', playErr);
+          }
+
+          handTracker.setVideoSource(video);
           setCameraStatus('active');
           if (onCameraStatusChange) onCameraStatusChange(true);
+
+          // Interaction unlock safeguard for strict browser autoplay policies
+          const unlockVideo = () => {
+            if (video.paused) {
+              video.play().catch(() => {});
+            }
+          };
+          window.addEventListener('pointerdown', unlockVideo, { once: true });
+          window.addEventListener('keydown', unlockVideo, { once: true });
         }
 
         // Initialize MediaPipe Tasks Vision HandLandmarker
@@ -155,6 +193,11 @@ export const CameraHandView: React.FC<CameraHandViewProps> = ({
   const renderHandOverlay = (hands: TrackedHand[]) => {
     const canvas = canvasRef.current;
     if (!canvas) return;
+    const video = videoRef.current;
+    if (video && video.videoWidth > 0 && canvas.width !== video.videoWidth) {
+      canvas.width = video.videoWidth;
+      canvas.height = video.videoHeight;
+    }
     const ctx = canvas.getContext('2d');
     if (!ctx) return;
 
@@ -306,8 +349,8 @@ export const CameraHandView: React.FC<CameraHandViewProps> = ({
             ? { left: `${customPosition.x}px`, top: `${customPosition.y}px` }
             : {}
         }
-        className={`fixed z-20 w-[200px] sm:w-[220px] md:w-[240px] aspect-4/3 rounded-xl overflow-hidden border border-cyan-500/60 bg-slate-950/95 shadow-2xl transition-opacity duration-200 ${
-          isVisible ? 'opacity-100 pointer-events-auto' : '-left-[9999px] -top-[9999px] opacity-0 pointer-events-none'
+        className={`fixed z-20 w-[200px] sm:w-[220px] md:w-[240px] aspect-4/3 rounded-xl overflow-hidden border border-cyan-500/60 bg-slate-950/95 shadow-2xl transition-all duration-200 ${
+          isVisible ? 'opacity-100 pointer-events-auto scale-100' : 'opacity-0 pointer-events-none scale-95'
         } ${getPositionClasses()}`}
       >
         {/* Real Live Webcam Video Feed (Mirrored) */}

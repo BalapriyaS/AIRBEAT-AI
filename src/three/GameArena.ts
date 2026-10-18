@@ -84,7 +84,7 @@ export class GameArena {
   private particlePositions: Float32Array;
   private particleVelocities: Float32Array;
   private particleLifespans: Float32Array;
-  private readonly MAX_PARTICLES = 600;
+  private readonly MAX_PARTICLES = 150;
 
   // Dance & State Management
   private currentStage: string = 'stage_1_beat_eater';
@@ -420,26 +420,26 @@ export class GameArena {
     const { normalMap, roughnessMap } = this.generateScaleTextures();
     const eyeTex = this.generatePredatorEyeTexture();
 
-    // Premium PBR Materials
+    // Premium Dielectric Organic PBR Materials (Living Dragon / Beast)
     const scaleSkinMat = new THREE.MeshStandardMaterial({
-      color: 0x181f33, // Deep abyssal navy/charcoal scale skin
-      metalness: 0.82,
-      roughness: 0.32,
+      color: 0x1b2e24, // Deep forest/emerald-obsidian reptilian scales
+      metalness: 0.02, // Pure dielectric organic keratin
+      roughness: 0.54, // Tactile cellular scute roughness
       normalMap: normalMap,
       roughnessMap: roughnessMap
     });
 
     const darkChitinMat = new THREE.MeshStandardMaterial({
-      color: 0x0c111e, // Dark exoskeleton armor plate
-      metalness: 0.94,
-      roughness: 0.22,
+      color: 0x121e17, // Dense dorsal armor scutes, horns, and talons
+      metalness: 0.03, // Organic bone/keratin
+      roughness: 0.46,
       normalMap: normalMap
     });
 
     const ivoryFangsMat = new THREE.MeshStandardMaterial({
-      color: 0xfef9c3,
-      metalness: 0.1,
-      roughness: 0.15
+      color: 0xfffbeb, // Polished biological ivory enamel
+      metalness: 0.0,
+      roughness: 0.18
     });
 
     const neonCyanEmissive = new THREE.MeshBasicMaterial({ color: 0x00f0ff });
@@ -463,17 +463,20 @@ export class GameArena {
     this.chestGroup.position.y = 0.55;
     this.spineGroup.add(this.chestGroup);
 
-    // Muscular Anatomical Chest (Sculpted Pectorals)
+    // Muscular Anatomical Torso (Sculpted Pectorals & Ribs)
     const chestGeo = new THREE.SphereGeometry(0.82, 24, 18);
     chestGeo.scale(1.0, 1.15, 0.85);
     const chestMesh = new THREE.Mesh(chestGeo, scaleSkinMat);
     chestMesh.castShadow = true;
     this.chestGroup.add(chestMesh);
 
-    // Layered abdominal armor scutes
+    // Layered abdominal armor scutes (contoured organic plates)
     for (let i = 0; i < 3; i++) {
-      const scute = new THREE.Mesh(new THREE.BoxGeometry(0.55 - i * 0.08, 0.14, 0.25), darkChitinMat);
-      scute.position.set(0, -0.32 + i * 0.2, 0.52);
+      const scuteGeo = new THREE.CylinderGeometry(0.28 - i * 0.04, 0.32 - i * 0.04, 0.14, 12);
+      scuteGeo.rotateZ(Math.PI / 2);
+      scuteGeo.scale(1.0, 0.5, 0.8);
+      const scute = new THREE.Mesh(scuteGeo, darkChitinMat);
+      scute.position.set(0, -0.32 + i * 0.2, 0.54);
       this.chestGroup.add(scute);
     }
 
@@ -514,12 +517,32 @@ export class GameArena {
     craniumMesh.castShadow = true;
     this.headGroup.add(craniumMesh);
 
-    // Snout / Maxilla
-    const snoutGeo = new THREE.ConeGeometry(0.32, 0.7, 6);
+    // Sculpted Organic Muzzle / Maxilla
+    const snoutGeo = new THREE.CylinderGeometry(0.2, 0.36, 0.68, 16);
     snoutGeo.rotateX(Math.PI / 2);
+    snoutGeo.scale(0.85, 0.72, 1.0);
     const snout = new THREE.Mesh(snoutGeo, darkChitinMat);
-    snout.position.set(0, -0.02, 0.55);
+    snout.position.set(0, -0.02, 0.52);
+    snout.castShadow = true;
     this.headGroup.add(snout);
+
+    // Anatomical nostril cavities
+    [-0.08, 0.08].forEach((nx) => {
+      const nostril = new THREE.Mesh(
+        new THREE.SphereGeometry(0.038, 8, 8),
+        new THREE.MeshBasicMaterial({ color: 0x070d0a })
+      );
+      nostril.position.set(nx, 0.05, 0.82);
+      this.headGroup.add(nostril);
+    });
+
+    // Upper Predatory Saber Fangs (Ivory Overbite)
+    [-0.16, 0.16].forEach((fx) => {
+      const upperFang = new THREE.Mesh(new THREE.ConeGeometry(0.042, 0.28, 10), ivoryFangsMat);
+      upperFang.position.set(fx, -0.15, 0.65);
+      upperFang.rotation.x = 0.22;
+      this.headGroup.add(upperFang);
+    });
 
     // Dual Realistic Predatory Eyes
     const eyeMat = new THREE.MeshStandardMaterial({
@@ -592,36 +615,38 @@ export class GameArena {
       }
     });
 
-    // Articulated Lower Jaw & Fangs
+    // Articulated Curved Lower Mandible & Fangs
     this.lowerJawGroup = new THREE.Group();
     this.lowerJawGroup.position.set(0, -0.16, 0.12);
     this.headGroup.add(this.lowerJawGroup);
 
-    const jawGeo = new THREE.BoxGeometry(0.48, 0.14, 0.72);
+    const jawGeo = new THREE.CylinderGeometry(0.14, 0.26, 0.64, 14);
+    jawGeo.rotateX(Math.PI / 2);
+    jawGeo.scale(0.82, 0.6, 1.0);
     const jawMesh = new THREE.Mesh(jawGeo, darkChitinMat);
-    jawMesh.position.set(0, -0.05, 0.24);
+    jawMesh.position.set(0, -0.04, 0.28);
     this.lowerJawGroup.add(jawMesh);
 
-    // Realistic curved fangs (4 main predatory canines + cheek incisors)
+    // Realistic curved lower fangs
     const fangPositions = [
-      [-0.18, 0.08, 0.46, 0.22],
-      [0.18, 0.08, 0.46, 0.22],
-      [-0.14, 0.06, 0.26, 0.16],
-      [0.14, 0.06, 0.26, 0.16]
+      [-0.14, 0.08, 0.46, 0.24],
+      [0.14, 0.08, 0.46, 0.24],
+      [-0.11, 0.06, 0.28, 0.16],
+      [0.11, 0.06, 0.28, 0.16]
     ];
     fangPositions.forEach(([fx, fy, fz, fHeight]) => {
-      const fang = new THREE.Mesh(new THREE.ConeGeometry(0.045, fHeight, 8), ivoryFangsMat);
+      const fang = new THREE.Mesh(new THREE.ConeGeometry(0.04, fHeight, 8), ivoryFangsMat);
       fang.position.set(fx, fy, fz);
-      fang.rotation.x = -0.25;
+      fang.rotation.x = -0.22;
       this.lowerJawGroup.add(fang);
     });
 
-    // Fleshy Tongue
-    const tongueGeo = new THREE.ConeGeometry(0.09, 0.35, 6);
+    // Fleshy Tongue & Vascular Gums
+    const tongueGeo = new THREE.ConeGeometry(0.09, 0.35, 8);
     tongueGeo.rotateX(Math.PI / 2);
     this.tongueMesh = new THREE.Mesh(
       tongueGeo,
-      new THREE.MeshStandardMaterial({ color: 0x9f1239, roughness: 0.4 })
+      new THREE.MeshStandardMaterial({ color: 0x9f1239, roughness: 0.35, metalness: 0.0 })
     );
     this.tongueMesh.position.set(0, 0.02, 0.24);
     this.lowerJawGroup.add(this.tongueMesh);
@@ -655,13 +680,18 @@ export class GameArena {
     this.leftHandGroup.position.y = -0.52;
     this.leftForearm.add(this.leftHandGroup);
 
-    const palmL = new THREE.Mesh(new THREE.BoxGeometry(0.18, 0.14, 0.1), darkChitinMat);
+    const palmLGeo = new THREE.CylinderGeometry(0.12, 0.08, 0.16, 12);
+    palmLGeo.rotateZ(Math.PI / 2);
+    palmLGeo.scale(1.0, 0.65, 1.0);
+    const palmL = new THREE.Mesh(palmLGeo, darkChitinMat);
     this.leftHandGroup.add(palmL);
 
-    // 3 Sharp obsidian talons on left hand
-    [-0.06, 0, 0.06].forEach((cx) => {
-      const claw = new THREE.Mesh(new THREE.ConeGeometry(0.026, 0.16, 6), darkChitinMat);
-      claw.position.set(cx, -0.14, 0.02);
+    // 3 Curved predatory talons on left hand
+    [-0.06, 0, 0.06].forEach((cx, idx) => {
+      const claw = new THREE.Mesh(new THREE.ConeGeometry(0.028, 0.18, 8), darkChitinMat);
+      claw.position.set(cx, -0.14, 0.03);
+      claw.rotation.x = 0.25;
+      claw.rotation.z = (idx - 1) * 0.1;
       this.leftHandGroup.add(claw);
     });
 
@@ -693,12 +723,17 @@ export class GameArena {
     this.rightHandGroup.position.y = -0.52;
     this.rightForearm.add(this.rightHandGroup);
 
-    const palmR = new THREE.Mesh(new THREE.BoxGeometry(0.18, 0.14, 0.1), darkChitinMat);
+    const palmRGeo = new THREE.CylinderGeometry(0.12, 0.08, 0.16, 12);
+    palmRGeo.rotateZ(Math.PI / 2);
+    palmRGeo.scale(1.0, 0.65, 1.0);
+    const palmR = new THREE.Mesh(palmRGeo, darkChitinMat);
     this.rightHandGroup.add(palmR);
 
-    [-0.06, 0, 0.06].forEach((cx) => {
-      const claw = new THREE.Mesh(new THREE.ConeGeometry(0.026, 0.16, 6), darkChitinMat);
-      claw.position.set(cx, -0.14, 0.02);
+    [-0.06, 0, 0.06].forEach((cx, idx) => {
+      const claw = new THREE.Mesh(new THREE.ConeGeometry(0.028, 0.18, 8), darkChitinMat);
+      claw.position.set(cx, -0.14, 0.03);
+      claw.rotation.x = 0.25;
+      claw.rotation.z = (idx - 1) * 0.1;
       this.rightHandGroup.add(claw);
     });
 
@@ -729,15 +764,19 @@ export class GameArena {
     this.leftFootMesh.position.set(0, -0.58, 0.12);
     this.leftShinGroup.add(this.leftFootMesh);
 
-    const footBaseL = new THREE.Mesh(new THREE.BoxGeometry(0.32, 0.14, 0.48), darkChitinMat);
+    const footBaseLGeo = new THREE.CylinderGeometry(0.18, 0.14, 0.42, 12);
+    footBaseLGeo.rotateX(Math.PI / 2);
+    footBaseLGeo.scale(0.85, 0.55, 1.0);
+    const footBaseL = new THREE.Mesh(footBaseLGeo, darkChitinMat);
     footBaseL.castShadow = true;
     this.leftFootMesh.add(footBaseL);
 
     // 3 grounded raptor claws
-    [-0.09, 0, 0.09].forEach((tx) => {
-      const talon = new THREE.Mesh(new THREE.ConeGeometry(0.04, 0.24, 6), ivoryFangsMat);
-      talon.rotation.x = Math.PI / 2;
-      talon.position.set(tx, -0.04, 0.3);
+    [-0.09, 0, 0.09].forEach((tx, idx) => {
+      const talon = new THREE.Mesh(new THREE.ConeGeometry(0.042, 0.26, 8), ivoryFangsMat);
+      talon.rotation.x = Math.PI / 2 + 0.1;
+      talon.rotation.z = (idx - 1) * 0.15;
+      talon.position.set(tx, -0.04, 0.28);
       this.leftFootMesh.add(talon);
     });
 
@@ -766,14 +805,18 @@ export class GameArena {
     this.rightFootMesh.position.set(0, -0.58, 0.12);
     this.rightShinGroup.add(this.rightFootMesh);
 
-    const footBaseR = new THREE.Mesh(new THREE.BoxGeometry(0.32, 0.14, 0.48), darkChitinMat);
+    const footBaseRGeo = new THREE.CylinderGeometry(0.18, 0.14, 0.42, 12);
+    footBaseRGeo.rotateX(Math.PI / 2);
+    footBaseRGeo.scale(0.85, 0.55, 1.0);
+    const footBaseR = new THREE.Mesh(footBaseRGeo, darkChitinMat);
     footBaseR.castShadow = true;
     this.rightFootMesh.add(footBaseR);
 
-    [-0.09, 0, 0.09].forEach((tx) => {
-      const talon = new THREE.Mesh(new THREE.ConeGeometry(0.04, 0.24, 6), ivoryFangsMat);
-      talon.rotation.x = Math.PI / 2;
-      talon.position.set(tx, -0.04, 0.3);
+    [-0.09, 0, 0.09].forEach((tx, idx) => {
+      const talon = new THREE.Mesh(new THREE.ConeGeometry(0.042, 0.26, 8), ivoryFangsMat);
+      talon.rotation.x = Math.PI / 2 + 0.1;
+      talon.rotation.z = (idx - 1) * 0.15;
+      talon.position.set(tx, -0.04, 0.28);
       this.rightFootMesh.add(talon);
     });
 
@@ -844,15 +887,35 @@ export class GameArena {
   }
 
   // ==================== PARTICLE SYSTEM ====================
+  private generateGlowParticleTexture(): THREE.CanvasTexture {
+    const canvas = document.createElement('canvas');
+    canvas.width = 64;
+    canvas.height = 64;
+    const ctx = canvas.getContext('2d')!;
+    const grad = ctx.createRadialGradient(32, 32, 0, 32, 32, 32);
+    grad.addColorStop(0, 'rgba(255, 255, 255, 1)');
+    grad.addColorStop(0.25, 'rgba(255, 255, 255, 0.85)');
+    grad.addColorStop(0.55, 'rgba(255, 255, 255, 0.3)');
+    grad.addColorStop(1, 'rgba(255, 255, 255, 0)');
+    ctx.fillStyle = grad;
+    ctx.beginPath();
+    ctx.arc(32, 32, 32, 0, Math.PI * 2);
+    ctx.fill();
+    const tex = new THREE.CanvasTexture(canvas);
+    return tex;
+  }
+
   private setupParticleSystem() {
     const geo = new THREE.BufferGeometry();
     geo.setAttribute('position', new THREE.BufferAttribute(this.particlePositions, 3));
 
     const mat = new THREE.PointsMaterial({
-      size: 0.2,
+      size: 0.12,
       color: 0x00f0ff,
+      map: this.generateGlowParticleTexture(),
       transparent: true,
-      opacity: 0.9,
+      opacity: 0.85,
+      depthWrite: false,
       blending: THREE.AdditiveBlending
     });
 
@@ -860,12 +923,13 @@ export class GameArena {
     this.scene.add(this.impactParticles);
   }
 
-  public spawnParticlesAt(pos: THREE.Vector3, colorHex: number, count: number = 30) {
+  public spawnParticlesAt(pos: THREE.Vector3, colorHex: number, count: number = 14) {
     if (!this.impactParticles) return;
     (this.impactParticles.material as THREE.PointsMaterial).color.setHex(colorHex);
 
+    const targetCount = Math.min(count, 18);
     let spawned = 0;
-    for (let i = 0; i < this.MAX_PARTICLES && spawned < count; i++) {
+    for (let i = 0; i < this.MAX_PARTICLES && spawned < targetCount; i++) {
       if (this.particleLifespans[i] <= 0) {
         const idx = i * 3;
         this.particlePositions[idx] = pos.x + (Math.random() - 0.5) * 0.4;

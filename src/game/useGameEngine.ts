@@ -17,7 +17,7 @@ import { INSTRUMENTS, SUPER_ATTACKS } from './instrumentsConfig';
 
 const TOTAL_GAME_TIME = 180; // 3-minute round (180s)
 
-// Rhythm Challenges Choreography Pools
+// Rhythm Challenges Choreography Pools (Generous exhibition-friendly time limits)
 const CHOREOGRAPHY_ROUTINES: Record<string, Omit<RhythmChallenge, 'id'>[]> = {
   stage_1: [
     {
@@ -26,7 +26,7 @@ const CHOREOGRAPHY_ROUTINES: Record<string, Omit<RhythmChallenge, 'id'>[]> = {
       danceMove: 'drums_stomp',
       actionName: 'Rhythmic Stomp',
       points: 500,
-      timeLimit: 4.2
+      timeLimit: 8.5
     },
     {
       instruction: 'SHRED THE GUITAR FOR A ROCK HEADBANG!',
@@ -34,7 +34,7 @@ const CHOREOGRAPHY_ROUTINES: Record<string, Omit<RhythmChallenge, 'id'>[]> = {
       danceMove: 'guitar_headbang',
       actionName: 'Rock Headbang',
       points: 500,
-      timeLimit: 4.0
+      timeLimit: 8.5
     },
     {
       instruction: 'PLAY THE PIANO FOR A GRACEFUL SWAY!',
@@ -42,7 +42,7 @@ const CHOREOGRAPHY_ROUTINES: Record<string, Omit<RhythmChallenge, 'id'>[]> = {
       danceMove: 'piano_sway',
       actionName: 'Piano Sway',
       points: 500,
-      timeLimit: 4.0
+      timeLimit: 8.5
     },
     {
       instruction: 'BLOW THE TRUMPET FOR A BRASS STRUT!',
@@ -50,7 +50,7 @@ const CHOREOGRAPHY_ROUTINES: Record<string, Omit<RhythmChallenge, 'id'>[]> = {
       danceMove: 'trumpet_march',
       actionName: 'Fanfare March',
       points: 500,
-      timeLimit: 4.0
+      timeLimit: 8.5
     },
     {
       instruction: 'BOW THE VIOLIN FOR A 360 PIRUETTE!',
@@ -58,7 +58,7 @@ const CHOREOGRAPHY_ROUTINES: Record<string, Omit<RhythmChallenge, 'id'>[]> = {
       danceMove: 'violin_spin',
       actionName: 'Violin Pirouette',
       points: 500,
-      timeLimit: 4.0
+      timeLimit: 8.5
     },
     {
       instruction: 'DROP THE BASS TO BREAKDANCE!',
@@ -66,7 +66,7 @@ const CHOREOGRAPHY_ROUTINES: Record<string, Omit<RhythmChallenge, 'id'>[]> = {
       danceMove: 'dj_bassdrop',
       actionName: 'Breakdance Drop',
       points: 500,
-      timeLimit: 4.0
+      timeLimit: 8.5
     }
   ],
   stage_2: [
@@ -76,7 +76,7 @@ const CHOREOGRAPHY_ROUTINES: Record<string, Omit<RhythmChallenge, 'id'>[]> = {
       danceMove: 'drums_stomp',
       actionName: 'Cyber Stomp',
       points: 600,
-      timeLimit: 3.4
+      timeLimit: 6.0
     },
     {
       instruction: 'SYNTH DROP: POP & BREAKDANCE!',
@@ -84,7 +84,7 @@ const CHOREOGRAPHY_ROUTINES: Record<string, Omit<RhythmChallenge, 'id'>[]> = {
       danceMove: 'dj_bassdrop',
       actionName: 'Electro Pop',
       points: 600,
-      timeLimit: 3.2
+      timeLimit: 6.0
     },
     {
       instruction: 'GUITAR SOLO: POWER HEADBANG!',
@@ -92,7 +92,7 @@ const CHOREOGRAPHY_ROUTINES: Record<string, Omit<RhythmChallenge, 'id'>[]> = {
       danceMove: 'guitar_headbang',
       actionName: 'Power Riff',
       points: 600,
-      timeLimit: 3.2
+      timeLimit: 6.0
     },
     {
       instruction: 'VIOLIN WHIRL: GLIDING SPINS!',
@@ -100,7 +100,7 @@ const CHOREOGRAPHY_ROUTINES: Record<string, Omit<RhythmChallenge, 'id'>[]> = {
       danceMove: 'violin_spin',
       actionName: 'Gliding Spin',
       points: 600,
-      timeLimit: 3.2
+      timeLimit: 6.0
     },
     {
       instruction: 'PIANO CASCADE: FLUID FOOTWORK!',
@@ -108,7 +108,7 @@ const CHOREOGRAPHY_ROUTINES: Record<string, Omit<RhythmChallenge, 'id'>[]> = {
       danceMove: 'piano_sway',
       actionName: 'Fluid Footwork',
       points: 600,
-      timeLimit: 3.2
+      timeLimit: 6.0
     },
     {
       instruction: 'BRASS POP: TRIUMPHANT FANFARE!',
@@ -116,7 +116,7 @@ const CHOREOGRAPHY_ROUTINES: Record<string, Omit<RhythmChallenge, 'id'>[]> = {
       danceMove: 'trumpet_march',
       actionName: 'Triumphant March',
       points: 600,
-      timeLimit: 3.2
+      timeLimit: 6.0
     }
   ],
   stage_3: [
@@ -126,7 +126,7 @@ const CHOREOGRAPHY_ROUTINES: Record<string, Omit<RhythmChallenge, 'id'>[]> = {
       danceMove: 'dj_bassdrop',
       actionName: 'Hyper Drop',
       points: 800,
-      timeLimit: 2.8
+      timeLimit: 4.8
     },
     {
       instruction: 'THUNDER DRUMS: SEISMIC DOUBLE STOMP!',
@@ -134,7 +134,7 @@ const CHOREOGRAPHY_ROUTINES: Record<string, Omit<RhythmChallenge, 'id'>[]> = {
       danceMove: 'drums_stomp',
       actionName: 'Thunder Stomp',
       points: 800,
-      timeLimit: 2.8
+      timeLimit: 4.8
     },
     {
       instruction: 'ROCK OVERDRIVE: WILD HEADBANG!',
@@ -142,7 +142,7 @@ const CHOREOGRAPHY_ROUTINES: Record<string, Omit<RhythmChallenge, 'id'>[]> = {
       danceMove: 'guitar_headbang',
       actionName: 'Overdrive Riff',
       points: 800,
-      timeLimit: 2.6
+      timeLimit: 4.8
     },
     {
       instruction: 'ROYAL TRUMPET: FANFARE CHEST POP!',
@@ -150,7 +150,7 @@ const CHOREOGRAPHY_ROUTINES: Record<string, Omit<RhythmChallenge, 'id'>[]> = {
       danceMove: 'trumpet_march',
       actionName: 'Chest Pop Strut',
       points: 800,
-      timeLimit: 2.6
+      timeLimit: 4.8
     },
     {
       instruction: 'COSMIC VIOLIN: ULTRA PIRUETTE!',
@@ -158,7 +158,7 @@ const CHOREOGRAPHY_ROUTINES: Record<string, Omit<RhythmChallenge, 'id'>[]> = {
       danceMove: 'violin_spin',
       actionName: 'Cosmic Pirouette',
       points: 800,
-      timeLimit: 2.6
+      timeLimit: 4.8
     },
     {
       instruction: 'PIANO GLIDE: MASTER KEY RIFF!',
@@ -166,7 +166,7 @@ const CHOREOGRAPHY_ROUTINES: Record<string, Omit<RhythmChallenge, 'id'>[]> = {
       danceMove: 'piano_sway',
       actionName: 'Master Riff',
       points: 800,
-      timeLimit: 2.6
+      timeLimit: 4.8
     }
   ]
 };
@@ -342,6 +342,20 @@ export function useGameEngine() {
 
   // Handle Miss / Stumble
   const handleChallengeMiss = (reason: string = 'STUMBLE! MISS') => {
+    if (stageRef.current === 'stage_1_beat_eater') {
+      // In Stage 1: Forgiving transition to next routine so exhibition players are not penalized
+      setJudgmentFeedback({
+        rating: 'GREAT',
+        scoreAdd: 0,
+        text: 'SWITCHING BEAT! TRY THIS ONE!',
+        id: Date.now()
+      });
+      setTimeout(() => {
+        spawnNextChallenge();
+      }, 700);
+      return;
+    }
+
     audioEngine.playMissSound();
 
     if (arenaRef.current) {
@@ -756,31 +770,37 @@ export function useGameEngine() {
     });
 
     setSuperAttackGauge(30);
-    setActivePrompt('FOLLOW THE CHALLENGE! PINCH OR CLICK INSTRUMENTS TO MAKE THE MONSTER DANCE!');
-    setTimeout(() => setActivePrompt(null), 3500);
 
     if (arenaRef.current) {
       arenaRef.current.setStage('stage_1_beat_eater');
       arenaRef.current.setMonsterHealthRatio(1.0);
     }
 
-    // Spawn first challenge
+    // 3-Second "GET READY" Grace Period: Timer stays paused, no penalties
+    setActivePrompt('GET READY... 3');
+    setTimeout(() => setActivePrompt('GET READY... 2'), 1000);
+    setTimeout(() => setActivePrompt('GET READY... 1'), 2000);
     setTimeout(() => {
-      spawnNextChallenge();
-    }, 600);
+      setActivePrompt('GROOVE! FOLLOW THE CHALLENGES!');
+      setTimeout(() => setActivePrompt(null), 2500);
 
-    if (timerIntervalRef.current) clearInterval(timerIntervalRef.current);
-    timerIntervalRef.current = window.setInterval(() => {
-      if (isPausedRef.current) return;
-      setStats((prev) => {
-        if (prev.timeRemaining <= 1) {
-          if (timerIntervalRef.current) clearInterval(timerIntervalRef.current);
-          triggerGameOver();
-          return { ...prev, timeRemaining: 0 };
-        }
-        return { ...prev, timeRemaining: prev.timeRemaining - 1 };
-      });
-    }, 1000);
+      // Spawn first challenge after player is ready
+      spawnNextChallenge();
+
+      // Start the round timer ONLY after the countdown finishes
+      if (timerIntervalRef.current) clearInterval(timerIntervalRef.current);
+      timerIntervalRef.current = window.setInterval(() => {
+        if (isPausedRef.current) return;
+        setStats((prev) => {
+          if (prev.timeRemaining <= 1) {
+            if (timerIntervalRef.current) clearInterval(timerIntervalRef.current);
+            triggerGameOver();
+            return { ...prev, timeRemaining: 0 };
+          }
+          return { ...prev, timeRemaining: prev.timeRemaining - 1 };
+        });
+      }, 1000);
+    }, 3000);
   };
 
   const togglePause = useCallback(() => {

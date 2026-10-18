@@ -18,6 +18,7 @@ import {
 } from 'lucide-react';
 import { GameStats } from '../types/game';
 import { INSTRUMENT_LIST, SUPER_ATTACK_LIST } from '../game/instrumentsConfig';
+import { TrackingStateInfo } from '../vision/HandTracker';
 
 // ==================== START SCREEN ====================
 interface StartScreenProps {
@@ -25,13 +26,15 @@ interface StartScreenProps {
   onOpenCalibration: () => void;
   onOpenHowToPlay: () => void;
   onOpenSuperGuide: () => void;
+  trackingInfo?: TrackingStateInfo;
 }
 
 export const StartScreen: React.FC<StartScreenProps> = ({
   onStart,
   onOpenCalibration,
   onOpenHowToPlay,
-  onOpenSuperGuide
+  onOpenSuperGuide,
+  trackingInfo
 }) => {
   return (
     <div className="absolute inset-0 z-40 flex items-center justify-center p-4 bg-slate-950/85 backdrop-blur-md">
@@ -67,6 +70,28 @@ export const StartScreen: React.FC<StartScreenProps> = ({
               </div>
             </div>
           ))}
+        </div>
+
+        {/* Live Camera & AI Tracking Readiness Status */}
+        <div className="flex items-center gap-2 px-3 py-1.5 rounded-full bg-slate-900/90 border border-slate-700 text-xs font-mono-tech mb-5">
+          <span
+            className={`w-2 h-2 rounded-full ${
+              trackingInfo?.handsCount && trackingInfo.handsCount > 0
+                ? 'bg-emerald-400 animate-ping'
+                : trackingInfo?.isReady
+                ? 'bg-cyan-400'
+                : 'bg-amber-400 animate-pulse'
+            }`}
+          />
+          <span className="text-slate-300">
+            {trackingInfo?.handsCount && trackingInfo.handsCount > 0
+              ? `VISION READY • ${trackingInfo.handsCount} HAND${trackingInfo.handsCount > 1 ? 'S' : ''} DETECTED`
+              : trackingInfo?.isReady
+              ? 'WEBCAM ACTIVE • RAISE HAND TO TEST'
+              : trackingInfo?.status === 'waiting_permission'
+              ? 'WEBCAM PERMISSION NEEDED (OR USE MOUSE 1-6)'
+              : 'INITIALIZING AI VISION... (KEYBOARD 1-6 READY)'}
+          </span>
         </div>
 
         {/* Action Buttons */}

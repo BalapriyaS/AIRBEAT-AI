@@ -81,11 +81,11 @@ export class HandTrackerService {
     );
 
     const initWorker = async () => {
-      // 1. Resolve WASM assets: Try CDN first for maximum reliability, then local fallback
+      // 1. Resolve WASM assets: Local bundle first for instant offline exhibition speed, CDN fallback
       const wasmSources = [
+        `${window.location.origin}/wasm`,
         'https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.14/wasm',
-        'https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@1.1.1/wasm',
-        `${window.location.origin}/wasm`
+        'https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@1.1.1/wasm'
       ];
 
       let vision = null;
@@ -109,10 +109,10 @@ export class HandTrackerService {
         throw new Error(`Failed to resolve Vision WASM: ${lastWasmErr}`);
       }
 
-      // 2. Load hand landmark model
+      // 2. Load hand landmark model: Local first (instant), Google storage fallback
       const modelSources = [
-        'https://storage.googleapis.com/mediapipe-models/hand_landmarker/hand_landmarker/float16/1/hand_landmarker.task',
-        `${window.location.origin}/models/hand_landmarker.task`
+        `${window.location.origin}/models/hand_landmarker.task`,
+        'https://storage.googleapis.com/mediapipe-models/hand_landmarker/hand_landmarker/float16/1/hand_landmarker.task'
       ];
 
       for (const modelPath of modelSources) {
@@ -224,15 +224,19 @@ export class HandTrackerService {
   };
 
   private processFrame() {
+    if (!this.handLandmarker || !this.videoElement || this.isProcessingFrame) {
+      return;
+    }
+
+    if (this.videoElement.paused && !this.videoElement.ended) {
+      this.videoElement.play().catch(() => {});
+      return;
+    }
+
     if (
-      !this.handLandmarker ||
-      !this.videoElement ||
       this.videoElement.readyState < 2 ||
-      this.videoElement.paused ||
-      this.videoElement.ended ||
       this.videoElement.videoWidth === 0 ||
-      this.videoElement.videoHeight === 0 ||
-      this.isProcessingFrame
+      this.videoElement.videoHeight === 0
     ) {
       return;
     }

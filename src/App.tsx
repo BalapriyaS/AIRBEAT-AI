@@ -148,7 +148,7 @@ export default function App() {
       <CameraHandView
         onHandsDetected={handleHandsDetected}
         onTrackingStateChange={setTrackingState}
-        isVisible={isCameraVisible && stage !== 'start_screen'}
+        isVisible={isCameraVisible}
         onToggleVisible={() => setIsCameraVisible((prev) => !prev)}
       />
 
@@ -179,6 +179,7 @@ export default function App() {
           onOpenCalibration={() => setShowCalibration(true)}
           onOpenHowToPlay={() => setShowHowToPlay(true)}
           onOpenSuperGuide={() => setShowSuperGuide(true)}
+          trackingInfo={trackingState}
         />
       )}
 

@@ -12,7 +12,7 @@ export const INSTRUMENTS: Record<InstrumentId, InstrumentConfig> = {
     colorTailwind: 'text-cyan-400 border-cyan-500 bg-cyan-950/60',
     glowClass: 'glow-cyan',
     iconName: 'Drum',
-    position: { x: 0.12, y: 0.20 }, // Left Column: Top
+    position: { x: 0.10, y: 0.22 }, // Left Column: Top
     side: 'left',
     row: 'top',
     description: 'Heavy kick & punchy snare that trigger powerful stomping movements!'
@@ -27,7 +27,7 @@ export const INSTRUMENTS: Record<InstrumentId, InstrumentConfig> = {
     colorTailwind: 'text-blue-400 border-blue-500 bg-blue-950/60',
     glowClass: 'glow-cyan',
     iconName: 'Piano',
-    position: { x: 0.12, y: 0.44 }, // Left Column: Middle
+    position: { x: 0.10, y: 0.47 }, // Left Column: Middle
     side: 'left',
     row: 'middle',
     description: 'Cascading acoustic piano keys that trigger graceful fluid footwork.'
@@ -42,7 +42,7 @@ export const INSTRUMENTS: Record<InstrumentId, InstrumentConfig> = {
     colorTailwind: 'text-fuchsia-400 border-fuchsia-500 bg-fuchsia-950/60',
     glowClass: 'glow-magenta',
     iconName: 'Music',
-    position: { x: 0.12, y: 0.68 }, // Left Column: Bottom (elevated with generous clearance)
+    position: { x: 0.10, y: 0.72 }, // Left Column: Bottom (elevated with clearance from dock)
     side: 'left',
     row: 'bottom',
     description: 'Hypnotic bowed tones that make the creature spin in a 360 pirouette!'
@@ -59,7 +59,7 @@ export const INSTRUMENTS: Record<InstrumentId, InstrumentConfig> = {
     colorTailwind: 'text-orange-400 border-orange-500 bg-orange-950/60',
     glowClass: 'glow-orange',
     iconName: 'Zap',
-    position: { x: 0.88, y: 0.20 }, // Right Column: Top
+    position: { x: 0.90, y: 0.22 }, // Right Column: Top
     side: 'right',
     row: 'top',
     description: 'Distorted electric lead riff that triggers aggressive rock headbanging!'
@@ -74,7 +74,7 @@ export const INSTRUMENTS: Record<InstrumentId, InstrumentConfig> = {
     colorTailwind: 'text-yellow-400 border-yellow-500 bg-yellow-950/60',
     glowClass: 'glow-yellow',
     iconName: 'Volume2',
-    position: { x: 0.88, y: 0.44 }, // Right Column: Middle
+    position: { x: 0.90, y: 0.47 }, // Right Column: Middle
     side: 'right',
     row: 'middle',
     description: 'Bright brass fanfare that triggers a triumphant parade march.'
@@ -89,7 +89,7 @@ export const INSTRUMENTS: Record<InstrumentId, InstrumentConfig> = {
     colorTailwind: 'text-emerald-400 border-emerald-500 bg-emerald-950/60',
     glowClass: 'glow-green',
     iconName: 'Disc',
-    position: { x: 0.88, y: 0.68 }, // Right Column: Bottom
+    position: { x: 0.90, y: 0.72 }, // Right Column: Bottom
     side: 'right',
     row: 'bottom',
     description: 'Sub-bass earth quakes that trigger a breakdance drop and robot pop!'
