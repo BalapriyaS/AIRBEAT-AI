@@ -39,6 +39,8 @@ export class GameArena {
   private creatureModel: THREE.Group | null = null;
   private creatureMeshes: THREE.Mesh[] = [];
   private isCreatureLoaded: boolean = false;
+  private summonBeacon: THREE.Group | null = null;
+  private summonRingMesh: THREE.Mesh | null = null;
 
   // Rhythm Breaker shield & rune
   private rhythmShield: THREE.Group | null = null;
@@ -565,6 +567,109 @@ export class GameArena {
   }
 
   // ==================== REALISTIC 3D SCI-FI CREATURE (GLTF/GLB) ====================
+  private buildSummonBeacon() {
+    this.summonBeacon = new THREE.Group();
+    this.summonBeacon.position.set(0, 0, 0);
+
+    // 1. Outer cyber summoning ring on stage ground
+    const ringGeo = new THREE.RingGeometry(1.6, 1.85, 48);
+    ringGeo.rotateX(-Math.PI / 2);
+    const ringMat = new THREE.MeshBasicMaterial({
+      color: 0x00d9ff,
+      side: THREE.DoubleSide,
+      transparent: true,
+      opacity: 0.85
+    });
+    this.summonRingMesh = new THREE.Mesh(ringGeo, ringMat);
+    this.summonRingMesh.position.y = 0.03;
+    this.summonBeacon.add(this.summonRingMesh);
+
+    // 2. Inner counter-rotating neon ring
+    const innerRingGeo = new THREE.RingGeometry(1.05, 1.25, 32);
+    innerRingGeo.rotateX(-Math.PI / 2);
+    const innerRingMat = new THREE.MeshBasicMaterial({
+      color: 0xa855f7,
+      side: THREE.DoubleSide,
+      transparent: true,
+      opacity: 0.75
+    });
+    const innerRing = new THREE.Mesh(innerRingGeo, innerRingMat);
+    innerRing.position.y = 0.035;
+    this.summonBeacon.add(innerRing);
+
+    // 3. Vertical holographic energy beam cylinder
+    const beamGeo = new THREE.CylinderGeometry(1.1, 1.5, 2.8, 32, 1, true);
+    const beamMat = new THREE.MeshBasicMaterial({
+      color: 0x00d9ff,
+      side: THREE.DoubleSide,
+      transparent: true,
+      opacity: 0.22,
+      wireframe: true
+    });
+    const beam = new THREE.Mesh(beamGeo, beamMat);
+    beam.position.y = 1.4;
+    this.summonBeacon.add(beam);
+
+    this.monsterGroup.add(this.summonBeacon);
+  }
+
+  private buildFallbackCreature() {
+    console.warn('[AIRBEAT AI] Activating procedural fallback creature...');
+    const fallbackGroup = new THREE.Group();
+    fallbackGroup.position.set(0, 0, 0);
+
+    const skinMat = new THREE.MeshStandardMaterial({
+      color: 0x1e293b,
+      roughness: 0.35,
+      metalness: 0.75
+    });
+
+    // Torso
+    const torsoGeo = new THREE.ConeGeometry(0.75, 1.8, 8);
+    const torso = new THREE.Mesh(torsoGeo, skinMat);
+    torso.position.set(0, 1.2, 0);
+    torso.rotation.x = Math.PI;
+    torso.castShadow = true;
+    fallbackGroup.add(torso);
+
+    // Head
+    const headGeo = new THREE.DodecahedronGeometry(0.45);
+    const head = new THREE.Mesh(headGeo, skinMat);
+    head.position.set(0, 2.05, 0.2);
+    head.castShadow = true;
+    fallbackGroup.add(head);
+
+    // Glowing Eyes
+    const eyeMat = new THREE.MeshBasicMaterial({ color: 0x00d9ff });
+    const leftEye = new THREE.Mesh(new THREE.SphereGeometry(0.08, 16, 16), eyeMat);
+    leftEye.position.set(-0.16, 2.12, 0.55);
+    const rightEye = new THREE.Mesh(new THREE.SphereGeometry(0.08, 16, 16), eyeMat);
+    rightEye.position.set(0.16, 2.12, 0.55);
+    fallbackGroup.add(leftEye);
+    fallbackGroup.add(rightEye);
+
+    // Cyber Wings
+    const wingGeo = new THREE.ConeGeometry(0.3, 2.2, 4);
+    wingGeo.rotateZ(Math.PI / 3);
+    const leftWing = new THREE.Mesh(wingGeo, skinMat);
+    leftWing.position.set(-1.0, 1.8, -0.2);
+    const rightWing = new THREE.Mesh(wingGeo, skinMat);
+    rightWing.position.set(1.0, 1.8, -0.2);
+    rightWing.rotation.y = Math.PI;
+    fallbackGroup.add(leftWing);
+    fallbackGroup.add(rightWing);
+
+    const meshes: THREE.Mesh[] = [];
+    fallbackGroup.traverse((c) => {
+      if ((c as THREE.Mesh).isMesh) meshes.push(c as THREE.Mesh);
+    });
+    this.creatureMeshes = meshes;
+    this.creatureRoot.add(fallbackGroup);
+
+    if (this.coreReactor) this.coreReactor.visible = true;
+    this.isCreatureLoaded = true;
+  }
+
   private buildRealisticCreature() {
     this.creatureRoot = new THREE.Group();
     this.creatureRoot.position.set(0, 0, 0);
@@ -572,82 +677,141 @@ export class GameArena {
 
     // Biometric Chest Core Light that illuminates the arena & beast
     this.coreLight = new THREE.PointLight(0x00d9ff, 4.0, 7.0);
-    this.coreLight.position.set(0, 1.4, 0.6);
+    this.coreLight.position.set(0, 1.35, 0.55);
     this.creatureRoot.add(this.coreLight);
 
-    // Glowing Chest Core Reactor Disc
+    // Glowing Chest Core Reactor Disc (kept hidden until model arrives)
     const reactorGeo = new THREE.CylinderGeometry(0.18, 0.18, 0.04, 32);
     reactorGeo.rotateX(Math.PI / 2);
     this.coreReactorMat = new THREE.MeshBasicMaterial({ color: 0x00d9ff });
     this.coreReactor = new THREE.Mesh(reactorGeo, this.coreReactorMat);
-    this.coreReactor.position.set(0, 1.4, 0.45);
+    this.coreReactor.position.set(0, 1.35, 0.45);
+    this.coreReactor.visible = false; // Hidden until monster is ready
     this.creatureRoot.add(this.coreReactor);
 
+    // Build Cyber Summoning Beacon on arena floor
+    this.buildSummonBeacon();
+
     // Load High-Poly Realistic Sci-Fi Creature GLB (Tarisland High-Poly Dragon Behemoth)
+    console.log('[AIRBEAT AI] Requesting /models/creature.glb...');
+    (window as any).__arena = this;
     this.gltfLoader.load(
       '/models/creature.glb',
       (gltf) => {
-        const model = gltf.scene;
-        this.creatureModel = model;
+        try {
+          console.log('[AIRBEAT AI] creature.glb downloaded and parsed! Scene children:', gltf.scene?.children?.length, 'Animations:', gltf.animations?.length);
+          const model = gltf.scene;
+          this.creatureModel = model;
 
-        // 1. Process materials & shadows on high-poly meshes
-        const meshes: THREE.Mesh[] = [];
-        model.traverse((child) => {
-          if ((child as THREE.Mesh).isMesh) {
-            const mesh = child as THREE.Mesh;
-            mesh.castShadow = true;
-            mesh.receiveShadow = true;
-            meshes.push(mesh);
-            if (mesh.material) {
-              const mat = (mesh.material as THREE.MeshStandardMaterial).clone();
-              mat.roughness = 0.35;
-              mat.metalness = 0.8;
-              mat.envMapIntensity = 2.0;
-              mat.emissive = new THREE.Color(0x000000);
-              mat.emissiveIntensity = 0;
-              mesh.material = mat;
+          // 1. Process materials & shadows on high-poly meshes
+          const meshes: THREE.Mesh[] = [];
+          model.traverse((child) => {
+            if ((child as THREE.Mesh).isMesh) {
+              const mesh = child as THREE.Mesh;
+              mesh.castShadow = true;
+              mesh.receiveShadow = true;
+              mesh.frustumCulled = false; // Prevents SkinnedMesh from disappearing during animations
+              meshes.push(mesh);
+              if (mesh.material) {
+                if (Array.isArray(mesh.material)) {
+                  mesh.material = mesh.material.map((m) => {
+                    const mat = (m as THREE.MeshStandardMaterial).clone();
+                    mat.roughness = 0.35;
+                    mat.metalness = 0.8;
+                    mat.envMapIntensity = 2.0;
+                    mat.emissive = new THREE.Color(0x000000);
+                    mat.emissiveIntensity = 0;
+                    return mat;
+                  });
+                } else {
+                  const mat = (mesh.material as THREE.MeshStandardMaterial).clone();
+                  mat.roughness = 0.35;
+                  mat.metalness = 0.8;
+                  mat.envMapIntensity = 2.0;
+                  mat.emissive = new THREE.Color(0x000000);
+                  mat.emissiveIntensity = 0;
+                  mesh.material = mat;
+                }
+              }
             }
+          });
+          this.creatureMeshes = meshes;
+          console.log('[AIRBEAT AI] Traversed meshes count:', meshes.length);
+
+          // 2. Compute exact bounding box and scale to ~2.5 arena height
+          let box = new THREE.Box3().setFromObject(model);
+          let size = box.getSize(new THREE.Vector3());
+
+          const targetHeight = 2.5;
+          const scaleFactor = targetHeight / (size.y || 1);
+          model.scale.setScalar(scaleFactor);
+
+          // Rotate to face camera FIRST so center accounts for orientation
+          model.rotation.y = Math.PI;
+          model.updateMatrixWorld(true);
+
+          // Compute box AFTER scale and rotation
+          box = new THREE.Box3().setFromObject(model);
+          const center = box.getCenter(new THREE.Vector3());
+
+          // Center on X and Z, place feet squarely on stage ground (y = 0.02)
+          model.position.x = -center.x;
+          model.position.y = -box.min.y + 0.02;
+          model.position.z = -center.z;
+          model.updateMatrixWorld(true);
+
+          console.log('[AIRBEAT AI] Centered Model Position:', JSON.stringify(model.position), 'ScaleFactor:', scaleFactor);
+
+          this.creatureRoot.add(model);
+          console.log('[AIRBEAT AI] Added creature model to creatureRoot. creatureRoot children:', this.creatureRoot.children.length);
+
+          // 3. Setup AnimationMixer and 27 Skeletal Animation Clips
+          if (gltf.animations && gltf.animations.length > 0) {
+            this.animationMixer = new THREE.AnimationMixer(model);
+            for (const clip of gltf.animations) {
+              const action = this.animationMixer.clipAction(clip);
+              this.animationActions.set(clip.name, action);
+            }
+
+            // Start with idle standing breathing animation
+            this.playAction('Qishilong_stand', 0.5);
+            console.log('[AIRBEAT AI] Started initial animation: Qishilong_stand');
           }
-        });
-        this.creatureMeshes = meshes;
 
-        // 2. Compute exact bounding box and scale to ~2.5 arena height
-        const box = new THREE.Box3().setFromObject(model);
-        const size = box.getSize(new THREE.Vector3());
-        const center = box.getCenter(new THREE.Vector3());
-
-        const targetHeight = 2.5;
-        const scaleFactor = targetHeight / (size.y || 1);
-        model.scale.setScalar(scaleFactor);
-
-        // Center on X and Z, place feet squarely on stage ground (y = 0.02)
-        box.setFromObject(model);
-        box.getSize(size);
-        box.getCenter(center);
-        model.position.x = -center.x;
-        model.position.y = -box.min.y + 0.02;
-        model.position.z = -center.z;
-        model.rotation.y = Math.PI; // Face the player / camera
-
-        this.creatureRoot.add(model);
-
-        // 3. Setup AnimationMixer and 27 Skeletal Animation Clips
-        if (gltf.animations && gltf.animations.length > 0) {
-          this.animationMixer = new THREE.AnimationMixer(model);
-          for (const clip of gltf.animations) {
-            const action = this.animationMixer.clipAction(clip);
-            this.animationActions.set(clip.name, action);
+          // Remove summoning beacon & reveal creature
+          if (this.summonBeacon) {
+            this.monsterGroup.remove(this.summonBeacon);
+            this.summonBeacon = null;
+            this.summonRingMesh = null;
           }
+          if (this.coreReactor) this.coreReactor.visible = true;
+          this.spawnParticlesAt(new THREE.Vector3(0, 1.4, 0), 0x00d9ff, 50);
 
-          // Start with idle standing breathing animation
-          this.playAction('Qishilong_stand', 0.5);
+          this.isCreatureLoaded = true;
+          console.log('[AIRBEAT AI] creature isCreatureLoaded = true!');
+        } catch (e) {
+          console.error('[AIRBEAT AI] Exception in creature GLTF setup:', e);
+          if (this.summonBeacon) {
+            this.monsterGroup.remove(this.summonBeacon);
+            this.summonBeacon = null;
+            this.summonRingMesh = null;
+          }
+          this.buildFallbackCreature();
         }
-
-        this.isCreatureLoaded = true;
       },
-      undefined,
+      (xhr) => {
+        if (xhr.total) {
+          console.log(`[AIRBEAT AI] creature.glb progress: ${Math.round((xhr.loaded / xhr.total) * 100)}%`);
+        }
+      },
       (err) => {
         console.error('[AIRBEAT AI] Error loading creature.glb:', err);
+        if (this.summonBeacon) {
+          this.monsterGroup.remove(this.summonBeacon);
+          this.summonBeacon = null;
+          this.summonRingMesh = null;
+        }
+        this.buildFallbackCreature();
       }
     );
   }
@@ -1148,6 +1312,15 @@ export class GameArena {
     this.updateMonsterDance(delta, elapsedTime);
     if (this.animationMixer) {
       this.animationMixer.update(delta);
+    }
+
+    // Summoning Beacon Animation (while model is streaming)
+    if (this.summonBeacon) {
+      this.summonBeacon.rotation.y += delta * 1.5;
+      if (this.summonRingMesh) {
+        const pulse = 0.65 + Math.sin(elapsedTime * 6) * 0.3;
+        (this.summonRingMesh.material as THREE.MeshBasicMaterial).opacity = pulse;
+      }
     }
 
     // 2. Boss & Stage ambient props

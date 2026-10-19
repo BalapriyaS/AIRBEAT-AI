@@ -104,7 +104,7 @@ export class HandTrackerService {
     }
 
     this.isModelLoading = true;
-    this.reportStatus('loading_model', 'LOADING MODEL...', false);
+    this.reportStatus('loading_model', 'INITIALIZING AI SENSOR...', false);
 
     // Timeout of 25 seconds for network / WASM compilation
     const timeoutPromise = new Promise<never>((_, reject) =>
