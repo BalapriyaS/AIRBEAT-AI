@@ -205,14 +205,14 @@ export const ResultsScreen: React.FC<ResultsScreenProps> = ({ stats, onReplay, i
         {/* Top Header Marquee Banner */}
         <div className="inline-flex items-center gap-2 px-4 py-1.5 rounded-full bg-[#080D18]/90 border border-[#1687FF]/50 shadow-lg text-[#00D9FF] text-xs font-mono-tech tracking-widest uppercase mb-3">
           <Sparkles className="w-3.5 h-3.5 text-[#00D9FF] animate-spin" />
-          <span>{isVictory ? 'BATTLE CLEARED • HIGH ACCURACY ACHIEVED' : 'BATTLE SIMULATION COMPLETE • TELEMETRY REPORT'}</span>
+          <span>{isVictory ? 'BOSS DEFEATED • ARENA CLEARED' : 'BATTLE SIMULATION COMPLETE • TELEMETRY REPORT'}</span>
           <Sparkles className="w-3.5 h-3.5 text-[#00D9FF] animate-spin" />
         </div>
 
         {/* Big Exciting Headline */}
         <h1 className="text-3xl sm:text-5xl font-arcade font-black tracking-tight uppercase text-center mb-1">
           {isVictory ? (
-            <span className="text-[#00D9FF] drop-shadow-[0_0_30px_rgba(0,217,255,0.6)]">ARENA TRIUMPH!</span>
+            <span className="text-[#00D9FF] drop-shadow-[0_0_30px_rgba(0,217,255,0.6)]">BOSS DEFEATED!</span>
           ) : (
             <span className="text-[#F1F5F9] drop-shadow-[0_0_24px_rgba(241,245,249,0.3)]">SESSION COMPLETE!</span>
           )}
@@ -401,18 +401,12 @@ export const StartScreen: React.FC<StartScreenProps> = ({
   trackingInfo
 }) => {
   const [activePreviewId, setActivePreviewId] = useState<InstrumentId | null>(null);
-  const [soloRemainingSec, setSoloRemainingSec] = useState<number>(0);
 
-  // Poll 5.0-second solo status from AudioEngine
+  // Poll the short active instrument preview indicator
   useEffect(() => {
     const timer = window.setInterval(() => {
       const active = audioEngine.getActiveInstrument();
       setActivePreviewId(active);
-      if (active) {
-        setSoloRemainingSec(audioEngine.getSoloRemainingSeconds());
-      } else {
-        setSoloRemainingSec(0);
-      }
     }, 60);
     return () => clearInterval(timer);
   }, []);
@@ -641,11 +635,11 @@ export const StartScreen: React.FC<StartScreenProps> = ({
           <div className="flex items-center justify-between px-2 mb-2.5">
             <div className="flex items-center gap-1.5 text-xs font-mono-tech font-bold text-[#00D9FF] uppercase tracking-wider">
               <Zap className="w-3.5 h-3.5 text-[#00D9FF]" />
-              <span>LIVE SOUNDBOARD • CLICK ANY INSTRUMENT FOR 5-SECOND REAL SOUND</span>
+              <span>LIVE SOUNDBOARD • SHORT, DISTINCT SYNTH ATTACKS</span>
             </div>
             {activePreviewId && (
               <span className="text-[11px] font-mono-tech font-bold text-[#A78BFA] animate-pulse">
-                🎶 PLAYING {activePreviewId.toUpperCase()} ({(soloRemainingSec || 5.0).toFixed(1)}s)
+                🎶 {activePreviewId.toUpperCase()} • HIT
               </span>
             )}
           </div>
@@ -702,9 +696,7 @@ export const StartScreen: React.FC<StartScreenProps> = ({
                   <div
                     className="text-[9px] font-mono-tech font-semibold tracking-tight mt-0.5 text-slate-400 group-hover:text-[#00D9FF]"
                   >
-                    {isPlaying
-                      ? `🎶 ${(soloRemainingSec || 5.0).toFixed(1)}s SOLO`
-                      : inst.subtitle.split('&')[0]}
+                    {isPlaying ? '🎶 HIT' : inst.subtitle.split('&')[0]}
                   </div>
                 </button>
               );
@@ -822,10 +814,10 @@ export const HowToPlayModal: React.FC<{ onClose: () => void }> = ({ onClose }) =
 
           <div className="p-3.5 rounded-2xl bg-[#080D18]/90 border border-[#A78BFA]/40">
             <h3 className="font-heading font-bold text-[#A78BFA] mb-1">
-              3. 5-Second Real Instrument Solos & Reactive Dance Moves
+              3. Instrument Synth Attacks & Reactive Dance Moves
             </h3>
             <p className="text-xs text-slate-400">
-              Every strike triggers a full 5-second acoustic or electronic instrument solo while the 3D creature executes responsive dance moves in real time!
+              Every strike triggers a short, distinctive synthesized instrument motif while the 3D creature reacts in real time.
             </p>
           </div>
 

@@ -14,8 +14,9 @@ import {
 import { audioEngine } from '../audio/AudioEngine';
 import { GameArena } from '../three/GameArena';
 import { INSTRUMENTS, SUPER_ATTACKS } from './instrumentsConfig';
+import { GAME_CONFIG } from './gameConfig';
 
-const TOTAL_GAME_TIME = 90; // Exactly 90-second round (01:30) as required
+const TOTAL_GAME_TIME = GAME_CONFIG.durationSeconds;
 
 // Rhythm Challenges Choreography Pools (Snappy fast-paced arcade challenges)
 const CHOREOGRAPHY_ROUTINES: Record<string, Omit<RhythmChallenge, 'id'>[]> = {
@@ -214,7 +215,7 @@ export function useGameEngine() {
   const [challengeProgress, setChallengeProgress] = useState<number>(1.0); // 1..0 countdown
   const [judgmentFeedback, setJudgmentFeedback] = useState<JudgmentFeedbackState | null>(null);
 
-  const [superAttackGauge, setSuperAttackGauge] = useState<number>(35); // 0..100
+  const [superAttackGauge, setSuperAttackGauge] = useState<number>(GAME_CONFIG.superGaugeStart); // 0..100
   const [superAttackNotification, setSuperAttackNotification] = useState<string | null>(null);
   const [activePrompt, setActivePrompt] = useState<string | null>(null);
   const [isPaused, setIsPaused] = useState<boolean>(false);
@@ -224,6 +225,7 @@ export function useGameEngine() {
   const stageRef = useRef<GameStage>(stage);
   const monsterRef = useRef<MonsterState>(monster);
   const statsRef = useRef<GameStats>(stats);
+  const comboRef = useRef<number>(stats.combo);
   const superGaugeRef = useRef<number>(superAttackGauge);
   const currentChallengeRef = useRef<RhythmChallenge | null>(null);
   const challengeEndTimeRef = useRef<number>(0);
@@ -233,10 +235,32 @@ export function useGameEngine() {
 
   // Intervals & Timers
   const timerIntervalRef = useRef<number | null>(null);
+  const roundDeadlineRef = useRef<number>(0);
+  const pausedRoundTimeLeftRef = useRef<number>(0);
+  const roundIsTerminalRef = useRef(false);
+  const roundGenerationRef = useRef(0);
+  const startSequenceTimeoutsRef = useRef<number[]>([]);
   const challengeTickRef = useRef<number | null>(null);
+  const finalVictoryTimeoutsRef = useRef<number[]>([]);
+  const defeatedPhaseRef = useRef<number>(0);
+  const isDefeatSequenceRef = useRef<boolean>(false);
 
   // Two-hand pinch memory
   const recentPinchesRef = useRef<{ instrument: InstrumentId; time: number; handId: string }[]>([]);
+
+  const scheduleRoundTimeout = useCallback((callback: () => void, delay: number) => {
+    const generation = roundGenerationRef.current;
+    return window.setTimeout(() => {
+      if (
+        generation !== roundGenerationRef.current ||
+        roundIsTerminalRef.current ||
+        isDefeatSequenceRef.current
+      ) {
+        return;
+      }
+      callback();
+    }, delay);
+  }, []);
 
   // Sync refs
   useEffect(() => {
@@ -261,15 +285,62 @@ export function useGameEngine() {
   // Set 3D arena instance
   const attachArena = useCallback((arena: GameArena) => {
     arenaRef.current = arena;
+    arena.setImpactCallback((isSuperAttack, instrumentId, comboCount, judgment) =>
+      audioEngine.playMonsterHitSound(isSuperAttack, instrumentId, comboCount, judgment)
+    );
   }, []);
 
-  // Update Rank Title helper (calibrated for 90s round)
+  useEffect(() => {
+    if (!judgmentFeedback) return;
+    const timeoutId = window.setTimeout(
+      () => setJudgmentFeedback(null),
+      GAME_CONFIG.comboFeedbackDurationMs
+    );
+    return () => clearTimeout(timeoutId);
+  }, [judgmentFeedback]);
+
+  // Update Rank Title helper
   const calculateRank = (score: number): string => {
     if (score >= 16000) return 'Legendary Dance Master';
     if (score >= 10000) return 'Sonic Superstar';
     if (score >= 5000) return 'Beat Warrior';
     return 'Rhythm Rookie';
   };
+
+  const dispatchInstrumentAttack = useCallback(
+    (
+      instrumentId: InstrumentId,
+      startCoord: { x: number; y: number },
+      damage: number,
+      comboCount: number,
+      judgment?: 'perfect' | 'great'
+    ) => {
+      const arena = arenaRef.current;
+      if (!arena) return;
+
+      audioEngine.playAttackLaunch(instrumentId, comboCount);
+      const config = INSTRUMENTS[instrumentId];
+      arena.triggerMonsterHitReaction(
+        parseInt(config.color.replace('#', '0x'), 16),
+        damage,
+        instrumentId
+      );
+      arena.fireAttack({
+        id: Math.random().toString(),
+        instrumentId,
+        startX: startCoord.x,
+        startY: startCoord.y,
+        targetX: 0.5,
+        targetY: 0.5,
+        damage,
+        color: config.color,
+        comboCount,
+        judgment,
+        timestamp: Date.now()
+      });
+    },
+    []
+  );
 
   // ==================== CHALLENGE GENERATOR ====================
   const spawnNextChallenge = useCallback(() => {
@@ -344,6 +415,7 @@ export function useGameEngine() {
   const handleChallengeMiss = (reason: string = 'TOO SLOW') => {
     // 1. Immediately invalidate current challenge to prevent 50ms interval from repeatedly firing!
     currentChallengeRef.current = null;
+    comboRef.current = 1;
     setCurrentChallenge(null);
     setChallengeProgress(0);
 
@@ -375,9 +447,9 @@ export function useGameEngine() {
     }));
 
     // Spawn next challenge cleanly
-    setTimeout(() => {
+    scheduleRoundTimeout(() => {
       spawnNextChallenge();
-    }, 280);
+    }, GAME_CONFIG.missChallengeDelayMs);
   };
 
   // ==================== ATTACK / DANCE TRIGGER ====================
@@ -391,20 +463,23 @@ export function useGameEngine() {
         return;
       }
 
-      if (isPausedRef.current || statsRef.current.timeRemaining <= 0) return;
+      if (
+        isPausedRef.current ||
+        statsRef.current.timeRemaining <= 0 ||
+        roundDeadlineRef.current <= performance.now() ||
+        isDefeatSequenceRef.current
+      ) return;
 
       const instConfig = INSTRUMENTS[instrumentId];
       const startCoord = customStart || instConfig.position;
 
       // 1. Play instrument sound immediately (zero latency)
-      audioEngine.playInstrument(instrumentId, handVariation);
-
       // Check Two-Hand Super Attack
       const now = performance.now();
       const pinches = recentPinchesRef.current.filter((p) => now - p.time < 350);
       const otherPinch = pinches.find((p) => p.instrument !== instrumentId);
 
-      if (otherPinch && superGaugeRef.current >= 40) {
+      if (otherPinch && superGaugeRef.current >= GAME_CONFIG.superGaugeReady) {
         let matchedSuper: SuperAttackId | null = null;
         if (
           (instrumentId === 'drums' && otherPinch.instrument === 'guitar') ||
@@ -430,6 +505,8 @@ export function useGameEngine() {
         }
       }
 
+      audioEngine.playInstrument(instrumentId, handVariation);
+
       // Register this hit for 2-hand window
       recentPinchesRef.current.push({ instrument: instrumentId, time: now, handId: Math.random().toString() });
       if (recentPinchesRef.current.length > 5) recentPinchesRef.current.shift();
@@ -445,40 +522,19 @@ export function useGameEngine() {
         const basePts = challenge.points;
         const hitPts = isPerfect ? basePts + 200 : basePts;
 
-        // Play positive chime and monster hit audio
-        if (isPerfect) {
-          audioEngine.playPerfectSound();
-        } else {
-          audioEngine.playGreatSound();
-        }
-        audioEngine.playMonsterHitSound(false);
+        const nextCombo = comboRef.current + 1;
+        comboRef.current = nextCombo;
+        audioEngine.setComboIntensity(nextCombo);
+        audioEngine.playComboAccent(nextCombo);
 
-        const colorHex = parseInt(instConfig.color.replace('#', '0x'), 16);
-
-        // Monster takes immediate hit reaction (recoil, flinch, emissive neon flash, particles)
-        if (arenaRef.current) {
-          arenaRef.current.triggerMonsterHitReaction(colorHex, hitPts);
-        }
-
-        // Send visual energy projectile to center
-        const attackEvent: AttackEvent = {
-          id: Math.random().toString(),
+        dispatchInstrumentAttack(
           instrumentId,
-          startX: startCoord.x,
-          startY: startCoord.y,
-          targetX: 0.5,
-          targetY: 0.5,
-          damage: hitPts,
-          color: instConfig.color,
-          comboCount: statsRef.current.combo,
-          timestamp: Date.now()
-        };
+          startCoord,
+          hitPts + Math.min(nextCombo, 8) * 90,
+          nextCombo,
+          isPerfect ? 'perfect' : 'great'
+        );
 
-        if (arenaRef.current) {
-          arenaRef.current.fireAttack(attackEvent);
-        }
-
-        const nextCombo = statsRef.current.combo + 1;
         const isFever = nextCombo >= 5;
         const multiplier = isFever ? 2.5 : Math.min(nextCombo, 5);
         const totalAddedScore = Math.round(hitPts * multiplier);
@@ -486,7 +542,7 @@ export function useGameEngine() {
         if (isFever && !statsRef.current.feverActive) {
           audioEngine.playFeverSound();
           setActivePrompt('🔥 FEVER DANCE ACTIVATED! 2.5X SCORE MULTIPLIER! 🔥');
-          setTimeout(() => setActivePrompt(null), 2000);
+          scheduleRoundTimeout(() => setActivePrompt(null), 2000);
         }
 
         setJudgmentFeedback({
@@ -516,24 +572,28 @@ export function useGameEngine() {
         });
 
         // Increase Super Gauge & Groove Level
-        setSuperAttackGauge((prev) => Math.min(100, prev + 15));
+        const nextGauge = Math.min(100, superGaugeRef.current + GAME_CONFIG.superGaugePerHit);
+        superGaugeRef.current = nextGauge;
+        setSuperAttackGauge(nextGauge);
         increaseGroove(isFever ? 22 : 16);
 
         // Advance to next challenge quickly for snappy, energetic pacing
         currentChallengeRef.current = null;
         setCurrentChallenge(null);
-        setTimeout(() => {
+        scheduleRoundTimeout(() => {
           spawnNextChallenge();
-        }, 120);
+        }, GAME_CONFIG.successChallengeDelayMs);
       } else if (challenge) {
         // Player clicked the WRONG instrument!
         // Immediately consume challenge so no rapid duplicates occur
         currentChallengeRef.current = null;
         setCurrentChallenge(null);
         setChallengeProgress(0);
+        comboRef.current = 1;
 
         const WRONG_PENALTY = 50;
         audioEngine.playMissSound();
+        audioEngine.setComboIntensity(1);
 
         if (arenaRef.current) {
           arenaRef.current.triggerMonsterDeflect();
@@ -565,26 +625,16 @@ export function useGameEngine() {
           id: Date.now()
         });
 
-        setTimeout(() => {
+        scheduleRoundTimeout(() => {
           spawnNextChallenge();
-        }, 280);
+        }, GAME_CONFIG.missChallengeDelayMs);
       } else {
         // Freestyle play outside of active challenge
-        const danceMap: Record<InstrumentId, DanceMoveId> = {
-          drums: 'drums_stomp',
-          guitar: 'guitar_headbang',
-          piano: 'piano_sway',
-          trumpet: 'trumpet_march',
-          violin: 'violin_spin',
-          dj: 'dj_bassdrop'
-        };
-
-        if (arenaRef.current) {
-          arenaRef.current.setDanceMove(danceMap[instrumentId], 2.0);
-        }
+        dispatchInstrumentAttack(instrumentId, startCoord, 100, comboRef.current);
+        increaseGroove(8);
       }
     },
-    [challengeProgress, spawnNextChallenge]
+    [challengeProgress, dispatchInstrumentAttack, scheduleRoundTimeout, spawnNextChallenge]
   );
 
   // ==================== SUPER ATTACK EXECUTION ====================
@@ -592,10 +642,15 @@ export function useGameEngine() {
     const config = SUPER_ATTACKS[superId];
     audioEngine.playSuperAttack(superId);
     audioEngine.playFeverSound();
-    setSuperAttackGauge((prev) => Math.max(0, prev - 50));
+    const nextGauge = Math.max(0, superGaugeRef.current - 50);
+    superGaugeRef.current = nextGauge;
+    setSuperAttackGauge(nextGauge);
 
-    setSuperAttackNotification(`SUPER DANCE: ${config.name}!`);
-    setTimeout(() => setSuperAttackNotification(null), 2500);
+    setSuperAttackNotification(`SUPER ATTACK! ${config.name}`);
+    scheduleRoundTimeout(
+      () => setSuperAttackNotification(null),
+      GAME_CONFIG.comboFeedbackDurationMs * 2
+    );
 
     const superDanceMap: Record<SuperAttackId, DanceMoveId> = {
       thunderquake: 'super_thunder',
@@ -604,10 +659,17 @@ export function useGameEngine() {
     };
 
     if (arenaRef.current) {
+      arenaRef.current.triggerMonsterHitReaction(
+        parseInt(config.color.replace('#', '0x'), 16),
+        1500,
+        config.instruments[0]
+      );
       arenaRef.current.setDanceMove(superDanceMap[superId], 3.2);
-      arenaRef.current.triggerMonsterHitReaction(parseInt(config.color.replace('#', '0x'), 16), 1500);
     }
-    audioEngine.playMonsterHitSound(true);
+    const nextCombo = comboRef.current + 3;
+    comboRef.current = nextCombo;
+    audioEngine.setComboIntensity(nextCombo);
+    audioEngine.playComboAccent(nextCombo);
 
     const attackEvent: AttackEvent = {
       id: Math.random().toString(),
@@ -620,7 +682,7 @@ export function useGameEngine() {
       targetY: 0.5,
       damage: 1500,
       color: config.color,
-      comboCount: statsRef.current.combo + 3,
+      comboCount: nextCombo,
       timestamp: Date.now()
     };
 
@@ -628,13 +690,13 @@ export function useGameEngine() {
       arenaRef.current.fireAttack(attackEvent);
     }
 
-    const addedScore = 1500 * Math.min(statsRef.current.combo, 5);
+    const addedScore = 1500 * Math.min(nextCombo - 3, 5);
     setStats((prev) => {
       const nextScore = prev.score + addedScore;
       return {
         ...prev,
         score: nextScore,
-        combo: prev.combo + 3,
+        combo: nextCombo,
         superAttacksUsed: prev.superAttacksUsed + 1,
         feverActive: true,
         rankTitle: calculateRank(nextScore)
@@ -650,9 +712,9 @@ export function useGameEngine() {
 
     increaseGroove(35);
 
-    setTimeout(() => {
+    scheduleRoundTimeout(() => {
       spawnNextChallenge();
-    }, 600);
+    }, GAME_CONFIG.superChallengeDelayMs);
   };
 
   // ==================== GROOVE PROGRESSION ====================
@@ -678,10 +740,16 @@ export function useGameEngine() {
   };
 
   const handleRoutineMastered = () => {
-    audioEngine.playVictoryFanfare();
+    const phase =
+      stageRef.current === 'stage_1_beat_eater' ? 1 :
+      stageRef.current === 'stage_2_rhythm_breaker' ? 2 :
+      stageRef.current === 'stage_3_music_destroyer' ? 3 : 0;
+    if (phase === 0 || defeatedPhaseRef.current >= phase || isDefeatSequenceRef.current) return;
+    defeatedPhaseRef.current = phase;
 
-    if (arenaRef.current) {
-      arenaRef.current.playDefeatAnimation();
+    if (phase < 3) {
+      audioEngine.playVictoryFanfare();
+      arenaRef.current?.playDefeatAnimation();
     }
 
     setStats((prev) => ({
@@ -692,19 +760,40 @@ export function useGameEngine() {
 
     if (stageRef.current === 'stage_1_beat_eater') {
       setActivePrompt('✨ ROUTINE 1 MASTERED! UNLOCKING CYBER SHUFFLE! ✨');
-      setTimeout(() => {
+      scheduleRoundTimeout(() => {
         transitionToStage('stage_2_rhythm_breaker');
       }, 1600);
     } else if (stageRef.current === 'stage_2_rhythm_breaker') {
       setActivePrompt('✨ ROUTINE 2 MASTERED! UNLOCKING HYPER-BEAT FINALE! ✨');
-      setTimeout(() => {
+      scheduleRoundTimeout(() => {
         transitionToStage('stage_3_music_destroyer');
       }, 1600);
     } else if (stageRef.current === 'stage_3_music_destroyer') {
-      setActivePrompt('👑 ULTIMATE DANCE VICTORY! ARENA CHAMPION! 👑');
-      setTimeout(() => {
-        triggerVictory();
-      }, 2000);
+      isDefeatSequenceRef.current = true;
+      if (timerIntervalRef.current) clearInterval(timerIntervalRef.current);
+      if (challengeTickRef.current) clearInterval(challengeTickRef.current);
+      setActivePrompt('FINAL HIT!');
+
+      const beginDestruction = window.setTimeout(() => {
+        audioEngine.stopBattleMusic();
+        audioEngine.playMonsterDefeat();
+        arenaRef.current?.playFinalDefeatAnimation();
+
+        const showDestroyedMessage = window.setTimeout(() => {
+          setActivePrompt('MONSTER DESTROYED!');
+        }, 1700);
+        const showVictoryMessage = window.setTimeout(() => {
+          setActivePrompt('VICTORY!');
+        }, 2550);
+        const finishVictory = window.setTimeout(() => {
+          setActivePrompt(null);
+          triggerVictory();
+        }, 3450);
+        finalVictoryTimeoutsRef.current.push(showDestroyedMessage, showVictoryMessage, finishVictory);
+      }, 380);
+      finalVictoryTimeoutsRef.current.push(beginDestruction);
+    } else {
+      arenaRef.current?.playDefeatAnimation();
     }
   };
 
@@ -731,7 +820,7 @@ export function useGameEngine() {
         arenaRef.current.setMonsterHealthRatio(1.0);
       }
       setActivePrompt('ROUTINE 2: CYBER SHUFFLE! FASTER BEATS & SHIELD SYNCS!');
-      setTimeout(() => {
+      scheduleRoundTimeout(() => {
         setActivePrompt(null);
         spawnNextChallenge();
       }, 2000);
@@ -753,9 +842,10 @@ export function useGameEngine() {
         arenaRef.current.setStage('stage_3_music_destroyer');
         arenaRef.current.setMonsterHealthRatio(1.0);
       }
+      superGaugeRef.current = 100;
       setSuperAttackGauge(100); // instant super readiness for finale!
       setActivePrompt('ROUTINE 3: HYPER-BEAT CLIMAX! PINCH 2 HANDS FOR SUPER DANCES!');
-      setTimeout(() => {
+      scheduleRoundTimeout(() => {
         setActivePrompt(null);
         spawnNextChallenge();
       }, 2500);
@@ -763,23 +853,57 @@ export function useGameEngine() {
   };
 
   const triggerVictory = () => {
+    if (roundIsTerminalRef.current) return;
+    roundIsTerminalRef.current = true;
+    roundGenerationRef.current += 1;
+    isDefeatSequenceRef.current = true;
     setStage('victory');
+    stageRef.current = 'victory';
     audioEngine.stopBattleMusic();
     audioEngine.playVictoryFanfare();
     if (timerIntervalRef.current) clearInterval(timerIntervalRef.current);
+    timerIntervalRef.current = null;
     if (challengeTickRef.current) clearInterval(challengeTickRef.current);
   };
 
   const triggerGameOver = () => {
+    if (roundIsTerminalRef.current) return;
+    roundIsTerminalRef.current = true;
+    roundGenerationRef.current += 1;
+    stageRef.current = 'game_over';
     setStage('game_over');
+    setStats((prev) => ({ ...prev, timeRemaining: 0 }));
     audioEngine.stopBattleMusic();
     audioEngine.playGameOver();
     if (timerIntervalRef.current) clearInterval(timerIntervalRef.current);
+    timerIntervalRef.current = null;
     if (challengeTickRef.current) clearInterval(challengeTickRef.current);
+    startSequenceTimeoutsRef.current.forEach((timeoutId) => clearTimeout(timeoutId));
+    startSequenceTimeoutsRef.current = [];
   };
 
   // ==================== ROUND COUNTDOWN TIMER ====================
   const startGame = () => {
+    if (timerIntervalRef.current) clearInterval(timerIntervalRef.current);
+    startSequenceTimeoutsRef.current.forEach((timeoutId) => clearTimeout(timeoutId));
+    startSequenceTimeoutsRef.current = [];
+    if (challengeTickRef.current) clearInterval(challengeTickRef.current);
+    roundGenerationRef.current += 1;
+    const roundGeneration = roundGenerationRef.current;
+    roundIsTerminalRef.current = false;
+    pausedRoundTimeLeftRef.current = 0;
+    roundDeadlineRef.current = performance.now() + TOTAL_GAME_TIME * 1000;
+    isPausedRef.current = false;
+    setIsPaused(false);
+    finalVictoryTimeoutsRef.current.forEach((timeoutId) => clearTimeout(timeoutId));
+    finalVictoryTimeoutsRef.current = [];
+    defeatedPhaseRef.current = 0;
+    isDefeatSequenceRef.current = false;
+    currentChallengeRef.current = null;
+    recentPinchesRef.current = [];
+    setCurrentChallenge(null);
+    setChallengeProgress(1);
+    audioEngine.setComboIntensity(1);
     audioEngine.ensureContext();
     audioEngine.startBattleMusic();
 
@@ -800,6 +924,8 @@ export function useGameEngine() {
       missCount: 0,
       feverActive: false
     });
+    comboRef.current = 1;
+    superGaugeRef.current = GAME_CONFIG.superGaugeStart;
 
     setMonster({
       name: 'THE BEAT EATER',
@@ -815,38 +941,68 @@ export function useGameEngine() {
       hitReactionTime: 0
     });
 
-    setSuperAttackGauge(30);
+    setSuperAttackGauge(GAME_CONFIG.superGaugeStart);
+    setJudgmentFeedback(null);
+    setSuperAttackNotification(null);
 
     if (arenaRef.current) {
       arenaRef.current.setStage('stage_1_beat_eater');
       arenaRef.current.setMonsterHealthRatio(1.0);
     }
 
-    // 3-Second "GET READY" Grace Period: Timer stays paused, no penalties
+    const scheduleStartSequence = (callback: () => void, delay: number) => {
+      const timeoutId = window.setTimeout(() => {
+        startSequenceTimeoutsRef.current = startSequenceTimeoutsRef.current.filter(
+          (activeTimeoutId) => activeTimeoutId !== timeoutId
+        );
+        if (
+          roundGenerationRef.current !== roundGeneration ||
+          roundIsTerminalRef.current
+        ) {
+          return;
+        }
+        callback();
+      }, delay);
+      startSequenceTimeoutsRef.current.push(timeoutId);
+    };
+
+    // Start the 60-second clock immediately; the ready prompt remains a short overlay.
     setActivePrompt('GET READY... 3');
-    setTimeout(() => setActivePrompt('GET READY... 2'), 1000);
-    setTimeout(() => setActivePrompt('GET READY... 1'), 2000);
-    setTimeout(() => {
+    scheduleStartSequence(() => setActivePrompt('GET READY... 2'), 1000);
+    scheduleStartSequence(() => setActivePrompt('GET READY... 1'), 2000);
+    scheduleStartSequence(() => {
       setActivePrompt('GROOVE! FOLLOW THE CHALLENGES!');
-      setTimeout(() => setActivePrompt(null), 2500);
+      scheduleStartSequence(() => setActivePrompt(null), 2500);
 
       // Spawn first challenge after player is ready
       spawnNextChallenge();
-
-      // Start the round timer ONLY after the countdown finishes
-      if (timerIntervalRef.current) clearInterval(timerIntervalRef.current);
-      timerIntervalRef.current = window.setInterval(() => {
-        if (isPausedRef.current) return;
-        setStats((prev) => {
-          if (prev.timeRemaining <= 1) {
-            if (timerIntervalRef.current) clearInterval(timerIntervalRef.current);
-            triggerGameOver();
-            return { ...prev, timeRemaining: 0 };
-          }
-          return { ...prev, timeRemaining: prev.timeRemaining - 1 };
-        });
-      }, 1000);
     }, 3000);
+
+    timerIntervalRef.current = window.setInterval(() => {
+      if (
+        roundGenerationRef.current !== roundGeneration ||
+        roundIsTerminalRef.current ||
+        isPausedRef.current
+      ) {
+        return;
+      }
+
+      const secondsRemaining = Math.max(
+        0,
+        Math.ceil((roundDeadlineRef.current - performance.now()) / 1000)
+      );
+      setStats((prev) =>
+        prev.timeRemaining === secondsRemaining
+          ? prev
+          : { ...prev, timeRemaining: secondsRemaining }
+      );
+
+      if (secondsRemaining === 0) {
+        if (timerIntervalRef.current) clearInterval(timerIntervalRef.current);
+        timerIntervalRef.current = null;
+        if (!isDefeatSequenceRef.current) triggerGameOver();
+      }
+    }, 100);
   };
 
   const togglePause = useCallback(() => {
@@ -855,9 +1011,11 @@ export function useGameEngine() {
       isPausedRef.current = next;
       const now = performance.now();
       if (next) {
+        pausedRoundTimeLeftRef.current = Math.max(0, roundDeadlineRef.current - now);
         pausedChallengeTimeLeftRef.current = Math.max(0, challengeEndTimeRef.current - now);
         audioEngine.stopBattleMusic();
       } else {
+        roundDeadlineRef.current = now + pausedRoundTimeLeftRef.current;
         challengeEndTimeRef.current = now + (pausedChallengeTimeLeftRef.current || 2000);
         audioEngine.startBattleMusic();
       }
@@ -917,8 +1075,12 @@ export function useGameEngine() {
   // Cleanup
   useEffect(() => {
     return () => {
+      roundIsTerminalRef.current = true;
+      roundGenerationRef.current += 1;
       if (timerIntervalRef.current) clearInterval(timerIntervalRef.current);
       if (challengeTickRef.current) clearInterval(challengeTickRef.current);
+      startSequenceTimeoutsRef.current.forEach((timeoutId) => clearTimeout(timeoutId));
+      finalVictoryTimeoutsRef.current.forEach((timeoutId) => clearTimeout(timeoutId));
       audioEngine.cleanup();
     };
   }, []);

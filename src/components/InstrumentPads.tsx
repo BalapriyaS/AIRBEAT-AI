@@ -2,6 +2,7 @@ import React, { useEffect, useRef, useState } from 'react';
 import { Activity, Disc, Drum, Music, Volume2, Zap } from 'lucide-react';
 import { InstrumentId, TrackedHand } from '../types/game';
 import { INSTRUMENT_LIST } from '../game/instrumentsConfig';
+import { GAME_CONFIG } from '../game/gameConfig';
 import { audioEngine } from '../audio/AudioEngine';
 
 interface InstrumentPadsProps {
@@ -22,7 +23,7 @@ export const InstrumentPads: React.FC<InstrumentPadsProps> = ({
   const [soloProgress, setSoloProgress] = useState<number>(0);
   const lastActivationTime = useRef<number>(0);
 
-  // Poll active instrument solo state and 5-second countdown from AudioEngine
+  // Poll the short active-instrument indicator from AudioEngine
   useEffect(() => {
     const timer = window.setInterval(() => {
       const active = audioEngine.getActiveInstrument();
@@ -49,8 +50,7 @@ export const InstrumentPads: React.FC<InstrumentPadsProps> = ({
   const handlePadTrigger = (id: InstrumentId, variation: number = 0.5) => {
     audioEngine.ensureContext();
     const now = performance.now();
-    // Fast 100ms debounce cooldown for snappy clicking
-    if (now - lastActivationTime.current < 100) return;
+    if (now - lastActivationTime.current < GAME_CONFIG.padInputCooldownMs) return;
     lastActivationTime.current = now;
 
     setActiveAnimId(id);

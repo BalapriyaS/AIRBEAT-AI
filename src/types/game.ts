@@ -110,6 +110,7 @@ export interface AttackEvent {
   damage: number;
   color: string;
   comboCount: number;
+  judgment?: 'perfect' | 'great';
   timestamp: number;
 }
 

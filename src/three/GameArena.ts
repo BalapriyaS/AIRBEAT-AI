@@ -3,6 +3,9 @@ import { RoomEnvironment } from 'three/examples/jsm/environments/RoomEnvironment
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
 import { AttackEvent, DanceMoveId, InstrumentId, SuperAttackId } from '../types/game';
 import { INSTRUMENTS } from '../game/instrumentsConfig';
+import { GAME_CONFIG } from '../game/gameConfig';
+
+export type GraphicsQuality = 'AUTO' | 'HIGH' | 'MEDIUM' | 'LOW';
 
 /**
  * AIRBEAT AI - Professional 3D Game Arena & High-Poly Realistic Sci-Fi Creature
@@ -39,6 +42,7 @@ export class GameArena {
   private creatureModel: THREE.Group | null = null;
   private creatureMeshes: THREE.Mesh[] = [];
   private isCreatureLoaded: boolean = false;
+  private fallbackCreature: THREE.Group | null = null;
   private summonBeacon: THREE.Group | null = null;
   private summonRingMesh: THREE.Mesh | null = null;
 
@@ -53,18 +57,44 @@ export class GameArena {
   private activeProjectiles: {
     mesh: THREE.Object3D;
     type: InstrumentId | SuperAttackId;
+    instrumentId: InstrumentId;
     start: THREE.Vector3;
     target: THREE.Vector3;
     progress: number;
     speed: number;
     colorHex: number;
+    damage: number;
+    comboCount: number;
+    judgment?: 'perfect' | 'great';
+    isSuperAttack: boolean;
+    materials: { material: THREE.Material; opacity: number }[];
   }[] = [];
+  private activeDamageNumbers: {
+    sprite: THREE.Sprite;
+    age: number;
+    lifetime: number;
+  }[] = [];
+  private activeImpactRings: {
+    mesh: THREE.Mesh;
+    age: number;
+    lifetime: number;
+    maxScale: number;
+  }[] = [];
+  private impactCallback:
+    | ((
+        isSuperAttack: boolean,
+        instrumentId: InstrumentId,
+        comboCount: number,
+        judgment?: 'perfect' | 'great'
+      ) => void)
+    | null = null;
 
   private impactParticles: THREE.Points | null = null;
   private particlePositions: Float32Array;
   private particleVelocities: Float32Array;
   private particleLifespans: Float32Array;
   private readonly MAX_PARTICLES = 150;
+  private readonly HIDDEN_PARTICLE_POSITION = 10000;
 
   // Dance & State Management
   private currentStage: string = 'stage_1_beat_eater';
@@ -72,8 +102,33 @@ export class GameArena {
   private danceTimer: number = 0;
   private monsterHealthRatio: number = 1.0;
   private screenShakeIntensity: number = 0;
+  private reducedEffects: boolean = false;
+  private graphicsQuality: GraphicsQuality = 'AUTO';
+  private effectiveQuality: Exclude<GraphicsQuality, 'AUTO'> = 'HIGH';
+  private currentFps: number = 0;
+  private currentFrameTimeMs: number = 0;
+  private previousFrameStartMs: number = 0;
+  private activeParticleCount: number = 0;
+  private fpsFrameCount: number = 0;
+  private fpsWindowStartMs: number = 0;
+  private lastQualityChangeMs: number = 0;
+  private highFpsSinceMs: number | null = null;
+  private lowFpsSinceMs: number | null = null;
+  private monsterDefeated: boolean = false;
+  private defeatElapsed: number = 0;
+  private defeatCallback: (() => void) | null = null;
+  private defeatCallbackFired: boolean = false;
+  private destructionMaterials: {
+    mesh: THREE.Mesh;
+    original: THREE.Material | THREE.Material[];
+    animated: THREE.Material[];
+  }[] = [];
   private monsterHitTimer: number = 0;
   private monsterDeflectTimer: number = 0;
+  private hitReactionElapsed: number = 0;
+  private hitReactionDuration: number = 0.5;
+  private hitReactionPosition = new THREE.Vector3();
+  private hitReactionRotation = new THREE.Vector3();
   private monsterSkinMat: THREE.MeshStandardMaterial | null = null;
   private coreReactorMat: THREE.MeshBasicMaterial | null = null;
   private animationFrameId: number | null = null;
@@ -88,6 +143,10 @@ export class GameArena {
 
   // Math helpers
   private readonly _v1 = new THREE.Vector3();
+  private readonly _blackColor = new THREE.Color(0x000000);
+  private readonly creatureHomePosition = new THREE.Vector3(0, 0, 0);
+  private readonly creatureHomeRotation = new THREE.Euler(0, Math.PI, 0);
+  private readonly impactPosition = new THREE.Vector3(0, 1.8, 0.25);
 
   constructor(container: HTMLElement) {
     this.container = container;
@@ -153,11 +212,102 @@ export class GameArena {
 
     // 9. Resize Listener & Pre-warm
     window.addEventListener('resize', this.onResize);
+    document.addEventListener('visibilitychange', this.onVisibilityChange);
     this.renderer.compile(this.scene, this.camera);
 
     // 10. Start Loop
     this.animate();
   }
+
+  public getPerformanceInfo() {
+    return {
+      fps: this.currentFps,
+      frameTimeMs: this.currentFrameTimeMs,
+      activeParticles: this.activeParticleCount,
+      quality: this.effectiveQuality,
+      qualityMode: this.graphicsQuality
+    };
+  }
+
+  public setGraphicsQuality(quality: GraphicsQuality) {
+    this.graphicsQuality = quality;
+    this.highFpsSinceMs = null;
+    this.lowFpsSinceMs = null;
+    this.applyGraphicsQuality(quality === 'AUTO' ? this.effectiveQuality : quality);
+  }
+
+  private applyGraphicsQuality(quality: Exclude<GraphicsQuality, 'AUTO'>) {
+    this.effectiveQuality = quality;
+    const ratioLimit = quality === 'HIGH' ? 1.25 : quality === 'MEDIUM' ? 1 : 0.75;
+    this.renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, ratioLimit));
+    this.renderer.shadowMap.enabled = quality === 'HIGH';
+    this.renderer.shadowMap.needsUpdate = true;
+  }
+
+  private getParticleLimit() {
+    return this.effectiveQuality === 'HIGH' ? this.MAX_PARTICLES :
+      this.effectiveQuality === 'MEDIUM' ? 90 : 48;
+  }
+
+  private updatePerformance(now: number) {
+    this.fpsFrameCount++;
+    if (this.fpsWindowStartMs === 0) {
+      this.fpsWindowStartMs = now;
+      return;
+    }
+    const elapsed = now - this.fpsWindowStartMs;
+    if (elapsed < 1000) return;
+    this.currentFps = Math.round((this.fpsFrameCount * 1000) / elapsed);
+    this.fpsFrameCount = 0;
+    this.fpsWindowStartMs = now;
+
+    if (this.graphicsQuality !== 'AUTO' || now - this.lastQualityChangeMs < 5000) return;
+    if (this.currentFps < 43) {
+      if (this.lowFpsSinceMs === null) this.lowFpsSinceMs = now;
+      if (now - this.lowFpsSinceMs < 2500) return;
+      const targetQuality = this.currentFps < 34 ? 'LOW' : 'MEDIUM';
+      const shouldLowerQuality =
+        targetQuality === 'LOW'
+          ? this.effectiveQuality !== 'LOW'
+          : this.effectiveQuality === 'HIGH';
+      if (shouldLowerQuality) {
+        this.applyGraphicsQuality(targetQuality);
+        this.lastQualityChangeMs = now;
+      }
+      this.highFpsSinceMs = null;
+      this.lowFpsSinceMs = null;
+    } else if (this.currentFps >= 56) {
+      this.lowFpsSinceMs = null;
+      if (this.highFpsSinceMs === null) this.highFpsSinceMs = now;
+      if (now - this.highFpsSinceMs >= 12000 && this.effectiveQuality !== 'HIGH') {
+        this.applyGraphicsQuality(this.effectiveQuality === 'LOW' ? 'MEDIUM' : 'HIGH');
+        this.lastQualityChangeMs = now;
+        this.highFpsSinceMs = now;
+      }
+    } else {
+      this.highFpsSinceMs = null;
+      this.lowFpsSinceMs = null;
+    }
+  }
+
+  private onVisibilityChange = () => {
+    if (document.hidden) {
+      if (this.animationFrameId !== null) cancelAnimationFrame(this.animationFrameId);
+      this.animationFrameId = null;
+      this.clock.stop();
+      return;
+    }
+    this.fpsFrameCount = 0;
+    this.fpsWindowStartMs = performance.now();
+    this.previousFrameStartMs = 0;
+    this.currentFrameTimeMs = 0;
+    this.lowFpsSinceMs = null;
+    this.highFpsSinceMs = null;
+    this.clock.start();
+    if (this.animationFrameId === null && !this.isDestroyed) {
+      this.animationFrameId = requestAnimationFrame(this.animate);
+    }
+  };
 
   // ==================== PROCEDURAL TEXTURES GENERATION ====================
   /**
@@ -614,65 +764,133 @@ export class GameArena {
   }
 
   private buildFallbackCreature() {
-    console.warn('[AIRBEAT AI] Activating procedural fallback creature...');
+    if (this.fallbackCreature) return;
+
+    console.info('[AIRBEAT AI] Showing procedural dragon while the detailed model loads...');
     const fallbackGroup = new THREE.Group();
-    fallbackGroup.position.set(0, 0, 0);
+    fallbackGroup.rotation.y = Math.PI;
 
     const skinMat = new THREE.MeshStandardMaterial({
-      color: 0x1e293b,
-      roughness: 0.35,
-      metalness: 0.75
+      color: 0x087f8c,
+      roughness: 0.32,
+      metalness: 0.62
     });
-
-    // Torso
-    const torsoGeo = new THREE.ConeGeometry(0.75, 1.8, 8);
-    const torso = new THREE.Mesh(torsoGeo, skinMat);
-    torso.position.set(0, 1.2, 0);
-    torso.rotation.x = Math.PI;
-    torso.castShadow = true;
-    fallbackGroup.add(torso);
-
-    // Head
-    const headGeo = new THREE.DodecahedronGeometry(0.45);
-    const head = new THREE.Mesh(headGeo, skinMat);
-    head.position.set(0, 2.05, 0.2);
-    head.castShadow = true;
-    fallbackGroup.add(head);
-
-    // Glowing Eyes
-    const eyeMat = new THREE.MeshBasicMaterial({ color: 0x00d9ff });
-    const leftEye = new THREE.Mesh(new THREE.SphereGeometry(0.08, 16, 16), eyeMat);
-    leftEye.position.set(-0.16, 2.12, 0.55);
-    const rightEye = new THREE.Mesh(new THREE.SphereGeometry(0.08, 16, 16), eyeMat);
-    rightEye.position.set(0.16, 2.12, 0.55);
-    fallbackGroup.add(leftEye);
-    fallbackGroup.add(rightEye);
-
-    // Cyber Wings
-    const wingGeo = new THREE.ConeGeometry(0.3, 2.2, 4);
-    wingGeo.rotateZ(Math.PI / 3);
-    const leftWing = new THREE.Mesh(wingGeo, skinMat);
-    leftWing.position.set(-1.0, 1.8, -0.2);
-    const rightWing = new THREE.Mesh(wingGeo, skinMat);
-    rightWing.position.set(1.0, 1.8, -0.2);
-    rightWing.rotation.y = Math.PI;
-    fallbackGroup.add(leftWing);
-    fallbackGroup.add(rightWing);
-
+    const bellyMat = new THREE.MeshStandardMaterial({
+      color: 0x55b8a8,
+      roughness: 0.48,
+      metalness: 0.3
+    });
+    const wingMat = new THREE.MeshStandardMaterial({
+      color: 0x123b58,
+      roughness: 0.4,
+      metalness: 0.48,
+      side: THREE.DoubleSide
+    });
+    const hornMat = new THREE.MeshStandardMaterial({
+      color: 0x9be7dc,
+      roughness: 0.28,
+      metalness: 0.5
+    });
+    const eyeMat = new THREE.MeshBasicMaterial({ color: 0x00eaff });
     const meshes: THREE.Mesh[] = [];
-    fallbackGroup.traverse((c) => {
-      if ((c as THREE.Mesh).isMesh) meshes.push(c as THREE.Mesh);
-    });
+    const addMesh = (mesh: THREE.Mesh) => {
+      mesh.castShadow = true;
+      mesh.receiveShadow = true;
+      fallbackGroup.add(mesh);
+      meshes.push(mesh);
+      return mesh;
+    };
+
+    const torso = addMesh(new THREE.Mesh(new THREE.SphereGeometry(1, 24, 16), skinMat));
+    torso.position.set(0, 1.28, 0);
+    torso.scale.set(0.58, 0.7, 0.43);
+
+    const belly = addMesh(new THREE.Mesh(new THREE.SphereGeometry(1, 20, 14), bellyMat));
+    belly.position.set(0, 1.22, 0.27);
+    belly.scale.set(0.37, 0.51, 0.23);
+
+    const neck = addMesh(new THREE.Mesh(new THREE.CylinderGeometry(0.2, 0.34, 0.75, 16), skinMat));
+    neck.position.set(0, 1.92, 0.12);
+    neck.rotation.x = -0.2;
+
+    const head = addMesh(new THREE.Mesh(new THREE.SphereGeometry(0.34, 20, 16), skinMat));
+    head.position.set(0, 2.42, 0.24);
+    head.scale.set(1.05, 0.78, 1.08);
+
+    const snout = addMesh(new THREE.Mesh(new THREE.SphereGeometry(0.22, 16, 12), bellyMat));
+    snout.position.set(0, 2.3, 0.53);
+    snout.scale.set(0.78, 0.52, 1.2);
+
+    for (const side of [-1, 1]) {
+      const eye = addMesh(new THREE.Mesh(new THREE.SphereGeometry(0.065, 12, 10), eyeMat));
+      eye.position.set(side * 0.2, 2.49, 0.51);
+
+      const horn = addMesh(new THREE.Mesh(new THREE.ConeGeometry(0.105, 0.43, 8), hornMat));
+      horn.position.set(side * 0.22, 2.78, 0.1);
+      horn.rotation.z = -side * 0.38;
+      horn.rotation.x = -0.2;
+
+      for (const z of [-0.25, 0.08, 0.38]) {
+        const leg = addMesh(new THREE.Mesh(new THREE.CylinderGeometry(0.1, 0.14, 0.48, 10), skinMat));
+        leg.position.set(side * 0.36, 0.55, z);
+        leg.rotation.z = side * -0.12;
+        const foot = addMesh(new THREE.Mesh(new THREE.SphereGeometry(0.14, 12, 10), bellyMat));
+        foot.position.set(side * 0.37, 0.31, z + 0.06);
+        foot.scale.set(1, 0.55, 1.25);
+      }
+
+      const wingShape = new THREE.Shape();
+      wingShape.moveTo(0, 0);
+      wingShape.lineTo(0.27, 0.39);
+      wingShape.lineTo(1.08, 0.75);
+      wingShape.lineTo(0.91, 0.24);
+      wingShape.quadraticCurveTo(0.83, 0.05, 0.69, -0.07);
+      wingShape.quadraticCurveTo(0.55, 0.16, 0.43, -0.14);
+      wingShape.quadraticCurveTo(0.28, 0.07, 0.16, -0.22);
+      wingShape.lineTo(0, 0);
+      const wing = addMesh(new THREE.Mesh(
+        new THREE.ExtrudeGeometry(wingShape, { depth: 0.055, bevelEnabled: true, bevelSize: 0.025, bevelThickness: 0.025, bevelSegments: 1 }),
+        wingMat
+      ));
+      wing.position.set(side * 0.24, 1.75, -0.19);
+      wing.scale.x = side;
+      wing.rotation.z = side * 0.08;
+    }
+
+    const tailCurve = new THREE.CatmullRomCurve3([
+      new THREE.Vector3(0, 1.0, -0.3),
+      new THREE.Vector3(0.04, 0.88, -0.68),
+      new THREE.Vector3(0.12, 0.92, -1.03),
+      new THREE.Vector3(0.2, 1.08, -1.33)
+    ]);
+    addMesh(new THREE.Mesh(new THREE.TubeGeometry(tailCurve, 20, 0.13, 10, false), skinMat));
+    const tailTip = addMesh(new THREE.Mesh(new THREE.ConeGeometry(0.19, 0.38, 5), hornMat));
+    tailTip.position.set(0.2, 1.22, -1.42);
+    tailTip.rotation.x = -0.5;
+
+    for (let i = 0; i < 5; i++) {
+      const spike = addMesh(new THREE.Mesh(new THREE.ConeGeometry(0.1, 0.28, 6), hornMat));
+      spike.position.set(0, 1.82 - i * 0.15, -0.3 + i * 0.15);
+      spike.rotation.x = -0.25;
+    }
+
     this.creatureMeshes = meshes;
     this.creatureRoot.add(fallbackGroup);
+    this.fallbackCreature = fallbackGroup;
 
     if (this.coreReactor) this.coreReactor.visible = true;
+    if (this.summonBeacon) {
+      this.monsterGroup.remove(this.summonBeacon);
+      this.summonBeacon = null;
+      this.summonRingMesh = null;
+    }
     this.isCreatureLoaded = true;
   }
 
   private buildRealisticCreature() {
     this.creatureRoot = new THREE.Group();
-    this.creatureRoot.position.set(0, 0, 0);
+    this.creatureRoot.position.copy(this.creatureHomePosition);
+    this.creatureRoot.rotation.copy(this.creatureHomeRotation);
     this.monsterGroup.add(this.creatureRoot);
 
     // Biometric Chest Core Light that illuminates the arena & beast
@@ -691,6 +909,7 @@ export class GameArena {
 
     // Build Cyber Summoning Beacon on arena floor
     this.buildSummonBeacon();
+    this.buildFallbackCreature();
 
     // Load High-Poly Realistic Sci-Fi Creature GLB (Tarisland High-Poly Dragon Behemoth)
     console.log('[AIRBEAT AI] Requesting /models/creature.glb...');
@@ -698,6 +917,10 @@ export class GameArena {
     this.gltfLoader.load(
       '/models/creature.glb',
       (gltf) => {
+        if (this.isDestroyed) {
+          this.disposeObjectResources(gltf.scene);
+          return;
+        }
         try {
           console.log('[AIRBEAT AI] creature.glb downloaded and parsed! Scene children:', gltf.scene?.children?.length, 'Animations:', gltf.animations?.length);
           const model = gltf.scene;
@@ -709,8 +932,8 @@ export class GameArena {
             if ((child as THREE.Mesh).isMesh) {
               const mesh = child as THREE.Mesh;
               mesh.castShadow = true;
-              mesh.receiveShadow = true;
-              mesh.frustumCulled = false; // Prevents SkinnedMesh from disappearing during animations
+              mesh.receiveShadow = false;
+              mesh.frustumCulled = true;
               meshes.push(mesh);
               if (mesh.material) {
                 if (Array.isArray(mesh.material)) {
@@ -768,6 +991,16 @@ export class GameArena {
           // 3. Setup AnimationMixer and 27 Skeletal Animation Clips
           if (gltf.animations && gltf.animations.length > 0) {
             this.animationMixer = new THREE.AnimationMixer(model);
+            this.animationMixer.addEventListener('finished', (event) => {
+              if (
+                event.action === this.currentAction &&
+                !this.monsterDefeated &&
+                event.action !== this.animationActions.get('Qishilong_die') &&
+                this.danceTimer <= 0
+              ) {
+                this.playAction('Qishilong_stand', 0.2, true);
+              }
+            });
             for (const clip of gltf.animations) {
               const action = this.animationMixer.clipAction(clip);
               this.animationActions.set(clip.name, action);
@@ -776,6 +1009,11 @@ export class GameArena {
             // Start with idle standing breathing animation
             this.playAction('Qishilong_stand', 0.5);
             console.log('[AIRBEAT AI] Started initial animation: Qishilong_stand');
+          }
+
+          if (this.fallbackCreature) {
+            this.creatureRoot.remove(this.fallbackCreature);
+            this.fallbackCreature = null;
           }
 
           // Remove summoning beacon & reveal creature
@@ -805,6 +1043,7 @@ export class GameArena {
         }
       },
       (err) => {
+        if (this.isDestroyed) return;
         console.error('[AIRBEAT AI] Error loading creature.glb:', err);
         if (this.summonBeacon) {
           this.monsterGroup.remove(this.summonBeacon);
@@ -821,22 +1060,31 @@ export class GameArena {
     const action = this.animationActions.get(name);
     if (!action) return;
 
-    if (this.currentAction === action) return;
-
+    const previousAction = this.currentAction;
+    const isCurrentAction = previousAction === action;
     action.reset();
-    action.setEffectiveTimeScale(1);
     action.setEffectiveWeight(1);
     if (!loop) {
       action.setLoop(THREE.LoopOnce, 1);
       action.clampWhenFinished = true;
     } else {
       action.setLoop(THREE.LoopRepeat, Infinity);
+      action.clampWhenFinished = false;
     }
+    const targetDuration = loop
+      ? name === 'Qishilong_stand'
+        ? 4
+        : 1.6
+      : 0.75 / GAME_CONFIG.attackSpeedMultiplier;
+    action.setEffectiveTimeScale(action.getClip().duration / targetDuration);
 
-    if (this.currentAction) {
-      this.currentAction.crossFadeTo(action, duration, true);
-    } else {
-      action.play();
+    action.play();
+    if (previousAction && !isCurrentAction) {
+      previousAction.crossFadeTo(
+        action,
+        duration / GAME_CONFIG.attackSpeedMultiplier,
+        true
+      );
     }
     this.currentAction = action;
   }
@@ -911,6 +1159,7 @@ export class GameArena {
   }
 
   private setupParticleSystem() {
+    this.particlePositions.fill(this.HIDDEN_PARTICLE_POSITION);
     const geo = new THREE.BufferGeometry();
     geo.setAttribute('position', new THREE.BufferAttribute(this.particlePositions, 3));
 
@@ -925,6 +1174,7 @@ export class GameArena {
     });
 
     this.impactParticles = new THREE.Points(geo, mat);
+    this.impactParticles.frustumCulled = false;
     this.scene.add(this.impactParticles);
   }
 
@@ -932,9 +1182,10 @@ export class GameArena {
     if (!this.impactParticles) return;
     (this.impactParticles.material as THREE.PointsMaterial).color.setHex(colorHex);
 
-    const targetCount = Math.min(count, 55);
+    const particleLimit = this.getParticleLimit();
+    const targetCount = Math.min(count, 55, particleLimit);
     let spawned = 0;
-    for (let i = 0; i < this.MAX_PARTICLES && spawned < targetCount; i++) {
+    for (let i = 0; i < particleLimit && spawned < targetCount; i++) {
       if (this.particleLifespans[i] <= 0) {
         const idx = i * 3;
         this.particlePositions[idx] = pos.x + (Math.random() - 0.5) * 0.4;
@@ -945,11 +1196,135 @@ export class GameArena {
         this.particleVelocities[idx + 1] = Math.random() * 5 + 1;
         this.particleVelocities[idx + 2] = (Math.random() - 0.5) * 6;
 
-        this.particleLifespans[i] = 1.0;
+        this.particleLifespans[i] = GAME_CONFIG.visualEffectLifetimeMultiplier;
         spawned++;
       }
     }
     this.impactParticles.geometry.attributes.position.needsUpdate = true;
+  }
+
+  private clearParticles() {
+    this.particleLifespans.fill(0);
+    this.particlePositions.fill(this.HIDDEN_PARTICLE_POSITION);
+    this.activeParticleCount = 0;
+    if (this.impactParticles) {
+      this.impactParticles.geometry.attributes.position.needsUpdate = true;
+    }
+  }
+
+  public setReducedEffects(enabled: boolean) {
+    this.reducedEffects = enabled;
+  }
+
+  public setImpactCallback(
+    callback: (
+      isSuperAttack: boolean,
+      instrumentId: InstrumentId,
+      comboCount: number,
+      judgment?: 'perfect' | 'great'
+    ) => void
+  ) {
+    this.impactCallback = callback;
+  }
+
+  private spawnImpactRings(
+    position: THREE.Vector3,
+    colorHex: number,
+    comboCount: number,
+    isSuperAttack = false
+  ) {
+    const colors = isSuperAttack ? [0x00d9ff, 0xa855f7, 0xec4899, colorHex] : [colorHex];
+    const ringCount = isSuperAttack ? 4 : comboCount >= 8 ? 3 : 2;
+    for (let i = 0; i < ringCount; i++) {
+      const color = colors[i % colors.length];
+      const mesh = new THREE.Mesh(
+        new THREE.TorusGeometry(0.62, isSuperAttack ? 0.045 : 0.035, 8, 48),
+        new THREE.MeshBasicMaterial({
+          color,
+          transparent: true,
+          opacity: 0.92,
+          depthWrite: false,
+          blending: THREE.AdditiveBlending
+        })
+      );
+      mesh.position.copy(position);
+      mesh.rotation.x = i === 0 && !isSuperAttack ? Math.PI / 2 : Math.PI * (0.12 + i * 0.19);
+      mesh.rotation.y = Math.PI * (i * 0.23);
+      mesh.scale.setScalar(0.15 + i * 0.08);
+      this.scene.add(mesh);
+      this.activeImpactRings.push({
+        mesh,
+        age: -i * 0.055,
+        lifetime:
+          (isSuperAttack ? 1.05 : 0.72) *
+          GAME_CONFIG.visualEffectLifetimeMultiplier,
+        maxScale: (isSuperAttack ? 4.8 : 2.8) * (1 + Math.min(comboCount, 10) * 0.035)
+      });
+    }
+
+    while (this.activeImpactRings.length > 28) {
+      const oldest = this.activeImpactRings.shift();
+      if (oldest) {
+        this.scene.remove(oldest.mesh);
+        this.disposeObjectResources(oldest.mesh);
+      }
+    }
+  }
+
+  private showDamageNumber(damage: number, comboCount: number, colorHex: number) {
+    const canvas = document.createElement('canvas');
+    canvas.width = 256;
+    canvas.height = 96;
+    const context = canvas.getContext('2d');
+    if (!context) return;
+
+    const texture = new THREE.CanvasTexture(canvas);
+    texture.colorSpace = THREE.SRGBColorSpace;
+    context.font = '900 34px sans-serif';
+    context.textAlign = 'center';
+    context.textBaseline = 'middle';
+    context.lineJoin = 'round';
+    const text = `+${Math.round(damage)}${comboCount >= 5 ? `  x${comboCount}` : ''}`;
+    context.lineWidth = 8;
+    context.strokeStyle = '#07111f';
+    context.strokeText(text, 128, 48);
+    context.fillStyle = `#${colorHex.toString(16).padStart(6, '0')}`;
+    context.shadowColor = `#${colorHex.toString(16).padStart(6, '0')}`;
+    context.shadowBlur = 16;
+    context.fillText(text, 128, 48);
+    texture.needsUpdate = true;
+
+    const sprite = new THREE.Sprite(
+      new THREE.SpriteMaterial({
+        map: texture,
+        transparent: true,
+        depthWrite: false
+      })
+    );
+    sprite.position.set(0, 2.65, 0.45);
+    sprite.scale.set(1.6, 0.6, 1);
+    this.scene.add(sprite);
+    this.activeDamageNumbers.push({
+      sprite,
+      age: 0,
+      lifetime: 0.9 * GAME_CONFIG.visualEffectLifetimeMultiplier
+    });
+  }
+
+  private disposeObjectResources(object: THREE.Object3D) {
+    object.traverse((child) => {
+      const mesh = child as THREE.Mesh;
+      mesh.geometry?.dispose();
+
+      if (!mesh.material) return;
+      const materials = Array.isArray(mesh.material) ? mesh.material : [mesh.material];
+      for (const material of materials) {
+        for (const value of Object.values(material)) {
+          if (value instanceof THREE.Texture) value.dispose();
+        }
+        material.dispose();
+      }
+    });
   }
 
   // ==================== EXTERNAL POINTER / HEAD TRACKING ====================
@@ -974,8 +1349,8 @@ export class GameArena {
       case 'guitar_headbang':
         this.playAction('Qishilong_skill06', 0.25, true);
         this.triggerScreenShake(0.12);
-        this.triggerStrobe(0xf97316);
-        this.spawnParticlesAt(new THREE.Vector3(0, 1.8, 0), 0xf97316, 22);
+        this.triggerStrobe(0x38bdf8);
+        this.spawnParticlesAt(new THREE.Vector3(0, 1.8, 0), 0x38bdf8, 22);
         break;
       case 'piano_sway':
         this.playAction('Qishilong_skill02', 0.35, true);
@@ -984,19 +1359,19 @@ export class GameArena {
         break;
       case 'trumpet_march':
         this.playAction('Qishilong_walk', 0.25, true);
-        this.triggerStrobe(0xeab308);
-        this.spawnParticlesAt(new THREE.Vector3(0, 2.2, 0), 0xeab308, 20);
+        this.triggerStrobe(0xfbbf24);
+        this.spawnParticlesAt(new THREE.Vector3(0, 2.2, 0), 0xfbbf24, 20);
         break;
       case 'violin_spin':
         this.playAction('Qishilong_turnleft', 0.3, true);
-        this.triggerStrobe(0xd946ef);
-        this.spawnParticlesAt(new THREE.Vector3(0, 1.6, 0), 0xd946ef, 24);
+        this.triggerStrobe(0xa78bfa);
+        this.spawnParticlesAt(new THREE.Vector3(0, 1.6, 0), 0xa78bfa, 24);
         break;
       case 'dj_bassdrop':
         this.playAction('Qishilong_skill08', 0.2, true);
         this.triggerScreenShake(0.2);
-        this.triggerStrobe(0x22c55e);
-        this.spawnParticlesAt(new THREE.Vector3(0, 0.2, 0), 0x22c55e, 28);
+        this.triggerStrobe(0xc084fc);
+        this.spawnParticlesAt(new THREE.Vector3(0, 0.2, 0), 0xc084fc, 28);
         break;
       case 'missed_stumble':
         this.playAction('Qishilong_down', 0.15, true);
@@ -1026,6 +1401,7 @@ export class GameArena {
 
   // ==================== ATTACK VISUAL PROJECTILES ====================
   public fireAttack(event: AttackEvent) {
+    if (this.monsterDefeated) return;
     const monsterPos = new THREE.Vector3(0, 1.5, 0);
     const start3D = new THREE.Vector3(
       (event.startX - 0.5) * 11,
@@ -1037,42 +1413,159 @@ export class GameArena {
     const colorHex = parseInt(event.color.replace('#', '0x'), 16);
 
     if (event.isSuperAttack) {
-      const superGeo = new THREE.IcosahedronGeometry(0.85, 2);
-      const superMat = new THREE.MeshBasicMaterial({ color: colorHex, wireframe: true });
-      projMesh = new THREE.Mesh(superGeo, superMat);
+      const superGroup = new THREE.Group();
+      const orb = new THREE.Mesh(
+        new THREE.IcosahedronGeometry(0.45, 1),
+        new THREE.MeshBasicMaterial({ color: colorHex, wireframe: true, transparent: true, opacity: 0.95 })
+      );
+      superGroup.add(orb);
+      [0x00d9ff, 0xa855f7, 0xec4899].forEach((color, index) => {
+        const ring = new THREE.Mesh(
+          new THREE.TorusGeometry(0.7 + index * 0.16, 0.035, 8, 36),
+          new THREE.MeshBasicMaterial({
+            color,
+            transparent: true,
+            opacity: 0.9,
+            depthWrite: false,
+            blending: THREE.AdditiveBlending
+          })
+        );
+        ring.rotation.set(index * 0.7, index * 0.4, index * 0.55);
+        superGroup.add(ring);
+      });
+      projMesh = superGroup;
       this.triggerScreenShake(0.28);
       this.triggerStrobe(colorHex);
     } else {
       switch (event.instrumentId) {
         case 'drums': {
-          const geo = new THREE.TorusGeometry(0.65, 0.14, 16, 32);
-          projMesh = new THREE.Mesh(geo, new THREE.MeshBasicMaterial({ color: colorHex, transparent: true, opacity: 0.9 }));
+          const shockwave = new THREE.Group();
+          for (let i = 0; i < 3; i++) {
+            const ring = new THREE.Mesh(
+              new THREE.TorusGeometry(0.48 + i * 0.22, 0.055, 8, 36),
+              new THREE.MeshBasicMaterial({
+                color: colorHex,
+                transparent: true,
+                opacity: 0.88 - i * 0.14,
+                depthWrite: false,
+                blending: THREE.AdditiveBlending
+              })
+            );
+            ring.rotation.x = Math.PI / 2;
+            shockwave.add(ring);
+          }
+          projMesh = shockwave;
           break;
         }
         case 'guitar': {
-          const geo = new THREE.ConeGeometry(0.32, 1.2, 4);
-          projMesh = new THREE.Mesh(geo, new THREE.MeshBasicMaterial({ color: colorHex }));
+          const bolt = new THREE.Group();
+          const points: number[] = [];
+          let previous = new THREE.Vector3(-0.42, -0.62, 0);
+          for (let i = 1; i <= 8; i++) {
+            const next = new THREE.Vector3(
+              (Math.random() - 0.5) * 0.9,
+              -0.62 + i * 0.16,
+              (Math.random() - 0.5) * 0.24
+            );
+            points.push(previous.x, previous.y, previous.z, next.x, next.y, next.z);
+            previous = next;
+          }
+          const boltGeometry = new THREE.BufferGeometry();
+          boltGeometry.setAttribute('position', new THREE.Float32BufferAttribute(points, 3));
+          bolt.add(new THREE.LineSegments(
+            boltGeometry,
+            new THREE.LineBasicMaterial({ color: 0x8be9ff, transparent: true, opacity: 1 })
+          ));
+          const core = new THREE.Mesh(
+            new THREE.OctahedronGeometry(0.18, 0),
+            new THREE.MeshBasicMaterial({ color: colorHex, wireframe: true })
+          );
+          bolt.add(core);
+          projMesh = bolt;
           break;
         }
         case 'piano': {
-          const geo = new THREE.BoxGeometry(0.42, 0.85, 0.12);
-          projMesh = new THREE.Mesh(geo, new THREE.MeshStandardMaterial({ color: colorHex, roughness: 0.1 }));
+          const notes = new THREE.Group();
+          for (let i = 0; i < 5; i++) {
+            const note = new THREE.Mesh(
+              new THREE.OctahedronGeometry(i === 2 ? 0.2 : 0.14, 0),
+              new THREE.MeshBasicMaterial({
+                color: i % 2 === 0 ? 0xffffff : colorHex,
+                wireframe: i % 2 === 1
+              })
+            );
+            note.position.set((i - 2) * 0.24, Math.sin(i * 1.8) * 0.2, 0);
+            notes.add(note);
+          }
+          const trailCurve = new THREE.CatmullRomCurve3([
+            new THREE.Vector3(-0.65, -0.18, 0),
+            new THREE.Vector3(-0.25, 0.2, 0.04),
+            new THREE.Vector3(0.15, -0.12, 0),
+            new THREE.Vector3(0.58, 0.22, -0.04)
+          ]);
+          notes.add(new THREE.Mesh(
+            new THREE.TubeGeometry(trailCurve, 20, 0.025, 5, false),
+            new THREE.MeshBasicMaterial({ color: colorHex })
+          ));
+          projMesh = notes;
           break;
         }
         case 'trumpet': {
-          const geo = new THREE.RingGeometry(0.25, 0.75, 32);
-          projMesh = new THREE.Mesh(geo, new THREE.MeshBasicMaterial({ color: colorHex, side: THREE.DoubleSide }));
+          const blast = new THREE.Group();
+          for (let i = 0; i < 3; i++) {
+            const ring = new THREE.Mesh(
+              new THREE.TorusGeometry(0.36 + i * 0.24, 0.035, 8, 36),
+              new THREE.MeshBasicMaterial({
+                color: i === 1 ? 0xffed9c : colorHex,
+                transparent: true,
+                opacity: 0.9 - i * 0.15,
+                depthWrite: false,
+                blending: THREE.AdditiveBlending
+              })
+            );
+            blast.add(ring);
+          }
+          projMesh = blast;
           break;
         }
         case 'violin': {
-          const geo = new THREE.TorusKnotGeometry(0.36, 0.09, 64, 8);
-          projMesh = new THREE.Mesh(geo, new THREE.MeshStandardMaterial({ color: colorHex, roughness: 0.2 }));
+          const slash = new THREE.Group();
+          for (let i = 0; i < 2; i++) {
+            const curve = new THREE.CatmullRomCurve3([
+              new THREE.Vector3(-0.72, -0.42 + i * 0.25, 0),
+              new THREE.Vector3(-0.28, 0.02, 0.12),
+              new THREE.Vector3(0.22, 0.4 - i * 0.18, 0),
+              new THREE.Vector3(0.72, 0.25 + i * 0.12, -0.08)
+            ]);
+            slash.add(new THREE.Mesh(
+              new THREE.TubeGeometry(curve, 24, i === 0 ? 0.045 : 0.02, 6, false),
+              new THREE.MeshBasicMaterial({
+                color: i === 0 ? 0xec4899 : colorHex,
+                transparent: true,
+                opacity: 0.95,
+                blending: THREE.AdditiveBlending
+              })
+            ));
+          }
+          projMesh = slash;
           break;
         }
         case 'dj': {
           const djGroup = new THREE.Group();
-          const sphere = new THREE.Mesh(new THREE.SphereGeometry(0.55, 24, 24), new THREE.MeshBasicMaterial({ color: 0x22c55e, wireframe: true }));
-          djGroup.add(sphere);
+          for (let i = 0; i < 3; i++) {
+            const ring = new THREE.Mesh(
+              new THREE.TorusGeometry(0.42 + i * 0.25, 0.04, 8, 36),
+              new THREE.MeshBasicMaterial({
+                color: i === 1 ? 0xf0abfc : colorHex,
+                transparent: true,
+                opacity: 0.88 - i * 0.14,
+                depthWrite: false,
+                blending: THREE.AdditiveBlending
+              })
+            );
+            if (i === 0) ring.rotation.x = Math.PI / 2;
+            djGroup.add(ring);
+          }
           projMesh = djGroup;
           break;
         }
@@ -1088,36 +1581,118 @@ export class GameArena {
     this.activeProjectiles.push({
       mesh: projMesh,
       type: event.isSuperAttack && event.superAttackId ? event.superAttackId : event.instrumentId,
+      instrumentId: event.instrumentId,
       start: start3D,
       target: monsterPos,
       progress: 0,
-      speed: 16.0,
-      colorHex: colorHex
+      speed: 16.0 * GAME_CONFIG.projectileSpeedMultiplier,
+      colorHex,
+      damage: event.damage,
+      comboCount: event.comboCount,
+      judgment: event.judgment,
+      isSuperAttack: event.isSuperAttack === true,
+      materials: this.getProjectileMaterials(projMesh)
     });
+    if (event.isSuperAttack) {
+      this.spawnImpactRings(monsterPos, colorHex, event.comboCount, true);
+      this.spawnParticlesAt(monsterPos, colorHex, 55);
+    }
+  }
+
+  private getProjectileMaterials(mesh: THREE.Object3D) {
+    const materials: { material: THREE.Material; opacity: number }[] = [];
+    mesh.traverse((child) => {
+      const meshChild = child as THREE.Mesh;
+      if (!meshChild.material) return;
+      const list = Array.isArray(meshChild.material) ? meshChild.material : [meshChild.material];
+      for (const material of list) {
+        materials.push({ material, opacity: material.opacity });
+        material.transparent = true;
+        material.depthWrite = false;
+      }
+    });
+    return materials;
   }
 
   public triggerScreenShake(intensity: number = 0.15) {
-    this.screenShakeIntensity = intensity;
+    this.screenShakeIntensity = Math.max(this.screenShakeIntensity, intensity * (this.reducedEffects ? 0.25 : 1));
   }
 
   public triggerStrobe(colorHex: number) {
     this.strobeLight.color.setHex(colorHex);
-    this.strobeLight.intensity = 5.5;
+    this.strobeLight.intensity = this.reducedEffects ? 2 : 5.5;
   }
 
-  public triggerMonsterHitReaction(colorHex: number = 0x00f0ff, damage: number = 50) {
+  public triggerMonsterHitReaction(
+    colorHex: number = 0x00f0ff,
+    damage: number = 50,
+    instrumentId?: InstrumentId
+  ) {
+    if (this.monsterDefeated) return;
+    this.danceTimer = 0;
+    this.currentDanceMove = 'idle';
     this.monsterHitTimer = 0.42;
     this.monsterDeflectTimer = 0;
+    this.hitReactionElapsed = 0;
+    this.hitReactionDuration =
+      (damage >= 1000 ? 0.72 : 0.5) / GAME_CONFIG.attackSpeedMultiplier;
+    const intensity = Math.min(
+      2.2,
+      (0.9 + Math.min(damage, 1500) / 1500) * (1 + (1 - this.monsterHealthRatio) * 0.45)
+    );
+    const side = Math.random() < 0.5 ? -1 : 1;
+    this.hitReactionPosition.set(0, 0, 0);
+    this.hitReactionRotation.set(0, 0, 0);
 
-    // Recoil animation clip
-    this.playAction('Qishilong_down01', 0.15, false);
+    switch (instrumentId) {
+      case 'drums':
+      case 'guitar':
+        this.hitReactionPosition.z = -0.28 * intensity;
+        this.hitReactionRotation.x = -0.12 * intensity;
+        break;
+      case 'piano':
+        this.hitReactionRotation.y = side * 0.2 * intensity;
+        this.hitReactionRotation.x = -0.08 * intensity;
+        break;
+      case 'violin':
+        this.hitReactionPosition.x = side * 0.2 * intensity;
+        this.hitReactionRotation.z = -side * 0.1 * intensity;
+        break;
+      case 'trumpet':
+        this.hitReactionRotation.y = side * 0.14 * intensity;
+        this.hitReactionRotation.x = -0.14 * intensity;
+        break;
+      case 'dj':
+        this.hitReactionPosition.y = -0.12 * intensity;
+        this.hitReactionPosition.z = -0.24 * intensity;
+        this.hitReactionRotation.x = -0.08 * intensity;
+        break;
+      default:
+        this.hitReactionPosition.z = -0.2 * intensity;
+        this.hitReactionRotation.x = -0.1 * intensity;
+        break;
+    }
+
+    const attackAnimation: Partial<Record<InstrumentId, string>> = {
+      drums: 'Qishilong_attack01',
+      guitar: 'Qishilong_skill06',
+      piano: 'Qishilong_skill02',
+      trumpet: 'Qishilong_walk',
+      violin: 'Qishilong_turnleft',
+      dj: 'Qishilong_skill08'
+    };
+    this.playAction(
+      instrumentId ? attackAnimation[instrumentId] || 'Qishilong_down01' : 'Qishilong_down01',
+      0.12,
+      false
+    );
 
     // High-voltage hit flash on creature skin and core
     this.creatureMeshes.forEach((mesh) => {
       const mat = mesh.material as THREE.MeshStandardMaterial;
       if (mat && mat.emissive) {
-        mat.emissive.setHex(colorHex);
-        mat.emissiveIntensity = 2.5;
+        mat.emissive.setHex(0xef4444);
+        mat.emissiveIntensity = this.reducedEffects ? 1.2 : 2.5;
       }
     });
 
@@ -1138,8 +1713,14 @@ export class GameArena {
   }
 
   public triggerMonsterDeflect() {
+    this.danceTimer = 0;
+    this.currentDanceMove = 'idle';
     this.monsterDeflectTimer = 0.42;
     this.monsterHitTimer = 0;
+    this.hitReactionElapsed = 0;
+    this.hitReactionDuration = 0.5;
+    this.hitReactionPosition.set(0, 0.14, 0);
+    this.hitReactionRotation.set(-0.16, 0, 0);
 
     // Deflect / block animation clip
     this.playAction('Qishilong_up', 0.15, false);
@@ -1211,12 +1792,41 @@ export class GameArena {
 
     const texture = new THREE.CanvasTexture(canvas);
     texture.colorSpace = THREE.SRGBColorSpace;
-    (this.rhythmRuneMesh.material as THREE.MeshBasicMaterial).map = texture;
-    (this.rhythmRuneMesh.material as THREE.MeshBasicMaterial).needsUpdate = true;
+    const material = this.rhythmRuneMesh.material as THREE.MeshBasicMaterial;
+    material.map?.dispose();
+    material.map = texture;
+    material.needsUpdate = true;
   }
 
   public setStage(stage: string) {
+    if (this.monsterDefeated) {
+      this.restoreDefeatedCreature();
+    }
+    this.activeProjectiles.forEach(({ mesh }) => {
+      this.scene.remove(mesh);
+      this.disposeObjectResources(mesh);
+    });
+    this.activeProjectiles = [];
+    this.activeDamageNumbers.forEach(({ sprite }) => {
+      this.scene.remove(sprite);
+      this.disposeObjectResources(sprite);
+    });
+    this.activeDamageNumbers = [];
+    this.activeImpactRings.forEach(({ mesh }) => {
+      this.scene.remove(mesh);
+      this.disposeObjectResources(mesh);
+    });
+    this.activeImpactRings = [];
+    this.clearParticles();
+    this.monsterHitTimer = 0;
+    this.monsterDeflectTimer = 0;
+    this.screenShakeIntensity = 0;
     this.currentStage = stage;
+    this.danceTimer = 0;
+    this.currentDanceMove = 'idle';
+    this.creatureRoot.position.copy(this.creatureHomePosition);
+    this.creatureRoot.rotation.copy(this.creatureHomeRotation);
+    this.playAction('Qishilong_stand', 0.25, true);
 
     if (stage === 'stage_1_beat_eater') {
       if (this.rhythmShield) this.rhythmShield.visible = false;
@@ -1245,9 +1855,145 @@ export class GameArena {
     if (callback) setTimeout(callback, 1800);
   }
 
+  public playFinalDefeatAnimation(callback?: () => void) {
+    if (this.monsterDefeated) return;
+    this.monsterDefeated = true;
+    this.defeatElapsed = 0;
+    this.defeatCallback = callback || null;
+    this.defeatCallbackFired = false;
+    this.danceTimer = 0;
+    this.currentDanceMove = 'idle';
+    this.playAction('Qishilong_die', 0.12, false);
+    this.sampleCreatureForDisintegration();
+    this.spawnImpactRings(new THREE.Vector3(0, 1.65, 0.2), 0xff3158, 10, true);
+    this.triggerScreenShake(0.34);
+    this.triggerStrobe(0xffffff);
+    if (this.coreLight) {
+      this.coreLight.color.setHex(0xff3158);
+      this.coreLight.intensity = 12;
+    }
+  }
+
+  private sampleCreatureForDisintegration() {
+    if (!this.creatureModel) {
+      this.spawnParticlesAt(new THREE.Vector3(0, 1.8, 0), 0xff3158, this.MAX_PARTICLES);
+      return;
+    }
+
+    this.creatureModel.updateMatrixWorld(true);
+    const sourceMeshes = this.creatureMeshes.filter((mesh) => {
+      const positions = mesh.geometry.getAttribute('position');
+      return positions && positions.count > 0;
+    });
+    if (sourceMeshes.length === 0) return;
+
+    const particleMaterial = this.impactParticles?.material as THREE.PointsMaterial | undefined;
+    if (particleMaterial) particleMaterial.color.setHex(0xff537a);
+    for (let i = 0; i < this.MAX_PARTICLES; i++) {
+      const mesh = sourceMeshes[Math.floor(Math.random() * sourceMeshes.length)];
+      const positions = mesh.geometry.getAttribute('position') as THREE.BufferAttribute;
+      const vertexIndex = Math.floor(Math.random() * positions.count);
+      const worldPosition = new THREE.Vector3().fromBufferAttribute(positions, vertexIndex);
+      mesh.localToWorld(worldPosition);
+      const index = i * 3;
+      this.particlePositions[index] = worldPosition.x;
+      this.particlePositions[index + 1] = worldPosition.y;
+      this.particlePositions[index + 2] = worldPosition.z;
+      const outward = worldPosition.clone().sub(new THREE.Vector3(0, 1.5, 0)).normalize();
+      this.particleVelocities[index] = outward.x * (1.2 + Math.random() * 3);
+      this.particleVelocities[index + 1] = 1.5 + Math.random() * 4.5;
+      this.particleVelocities[index + 2] = outward.z * (1.2 + Math.random() * 3);
+      this.particleLifespans[i] = 2.1 + Math.random() * 0.45;
+    }
+    if (this.impactParticles) {
+      this.impactParticles.geometry.attributes.position.needsUpdate = true;
+    }
+
+    for (const mesh of this.creatureMeshes) {
+      const original = mesh.material;
+      const animated = (Array.isArray(original) ? original : [original]).map((material) => {
+        const copy = material.clone();
+        if ('transparent' in copy) copy.transparent = true;
+        if ('opacity' in copy) copy.opacity = 1;
+        if ('depthWrite' in copy) copy.depthWrite = false;
+        if (copy instanceof THREE.MeshStandardMaterial) {
+          copy.emissive.setHex(0xff3158);
+          copy.emissiveIntensity = 3.5;
+        }
+        return copy;
+      });
+      mesh.material = Array.isArray(original) ? animated : animated[0];
+      this.destructionMaterials.push({ mesh, original, animated });
+    }
+  }
+
+  private restoreDefeatedCreature() {
+    this.monsterDefeated = false;
+    this.defeatElapsed = 0;
+    this.defeatCallback = null;
+    this.defeatCallbackFired = false;
+    if (this.creatureModel) {
+      this.creatureModel.visible = true;
+      this.creatureModel.scale.setScalar(1);
+    }
+    if (this.fallbackCreature) this.fallbackCreature.visible = true;
+    this.creatureRoot.position.copy(this.creatureHomePosition);
+    this.creatureRoot.rotation.copy(this.creatureHomeRotation);
+    for (const entry of this.destructionMaterials) {
+      entry.mesh.material = entry.original;
+      entry.animated.forEach((material) => material.dispose());
+    }
+    this.destructionMaterials = [];
+    this.animationMixer?.stopAllAction();
+    this.currentAction = null;
+    this.playAction('Qishilong_stand', 0.2, true);
+    this.clearParticles();
+    this.activeImpactRings.forEach(({ mesh }) => {
+      this.scene.remove(mesh);
+      this.disposeObjectResources(mesh);
+    });
+    this.activeImpactRings = [];
+  }
+
   // ==================== CREATURE ANIMATION & LIGHTING UPDATE ====================
   private updateMonsterDance(delta: number, time: number) {
     if (!this.creatureRoot) return;
+
+    if (this.monsterDefeated) {
+      this.defeatElapsed += delta;
+      const stagger = Math.min(1, this.defeatElapsed / 0.65);
+      this.creatureRoot.position.set(
+        this.creatureHomePosition.x,
+        this.creatureHomePosition.y - stagger * 0.24,
+        this.creatureHomePosition.z - Math.sin(stagger * Math.PI) * 0.16
+      );
+      this.creatureRoot.rotation.set(
+        this.creatureHomeRotation.x - stagger * 0.2,
+        this.creatureHomeRotation.y,
+        this.creatureHomeRotation.z + stagger * 0.14
+      );
+      const dissolve = THREE.MathUtils.clamp((this.defeatElapsed - 0.55) / 1.8, 0, 1);
+      this.creatureModel?.scale.setScalar(1 - dissolve * 0.88);
+      for (const entry of this.destructionMaterials) {
+        entry.animated.forEach((material) => {
+          if ('opacity' in material) material.opacity = 1 - dissolve;
+          if ('emissiveIntensity' in material) {
+            material.emissiveIntensity = 1.5 + dissolve * 5;
+          }
+        });
+      }
+      if (this.defeatElapsed >= 2.45 && this.creatureModel) {
+        this.creatureModel.visible = false;
+      }
+      if (this.defeatElapsed >= 2.45 && this.fallbackCreature) {
+        this.fallbackCreature.visible = false;
+      }
+      if (this.defeatElapsed >= 2.8 && !this.defeatCallbackFired) {
+        this.defeatCallbackFired = true;
+        this.defeatCallback?.();
+      }
+      return;
+    }
 
     if (this.danceTimer > 0) {
       this.danceTimer -= delta;
@@ -1260,8 +2006,24 @@ export class GameArena {
     // Parallax tracking: tilt creature slightly toward hand pointer
     const targetTiltX = -(this.pointerTarget.y - 0.5) * 0.08;
     const targetTiltY = (this.pointerTarget.x - 0.5) * 0.18;
-    this.creatureRoot.rotation.x = THREE.MathUtils.damp(this.creatureRoot.rotation.x, targetTiltX, 5, delta);
-    this.creatureRoot.rotation.y = THREE.MathUtils.damp(this.creatureRoot.rotation.y, Math.PI + targetTiltY, 5, delta);
+    this.hitReactionElapsed = Math.min(
+      this.hitReactionDuration,
+      this.hitReactionElapsed + delta
+    );
+    const reactionProgress = this.hitReactionDuration > 0
+      ? this.hitReactionElapsed / this.hitReactionDuration
+      : 1;
+    const reactionEnvelope = Math.sin(Math.PI * reactionProgress);
+    this.creatureRoot.position.set(
+      this.creatureHomePosition.x + this.hitReactionPosition.x * reactionEnvelope,
+      this.creatureHomePosition.y + this.hitReactionPosition.y * reactionEnvelope,
+      this.creatureHomePosition.z + this.hitReactionPosition.z * reactionEnvelope
+    );
+    this.creatureRoot.rotation.set(
+      this.creatureHomeRotation.x + targetTiltX + this.hitReactionRotation.x * reactionEnvelope,
+      this.creatureHomeRotation.y + targetTiltY + this.hitReactionRotation.y * reactionEnvelope,
+      this.creatureHomeRotation.z + this.hitReactionRotation.z * reactionEnvelope
+    );
 
     // Smooth emissive flash decay on hit
     if (this.monsterHitTimer > 0) {
@@ -1269,7 +2031,7 @@ export class GameArena {
       this.creatureMeshes.forEach((mesh) => {
         const mat = mesh.material as THREE.MeshStandardMaterial;
         if (mat && mat.emissive) {
-          mat.emissive.lerp(new THREE.Color(0x000000), delta * 7);
+          mat.emissive.lerp(this._blackColor, delta * 7);
           mat.emissiveIntensity = THREE.MathUtils.lerp(mat.emissiveIntensity, 0, delta * 7);
         }
       });
@@ -1280,14 +2042,14 @@ export class GameArena {
       this.creatureMeshes.forEach((mesh) => {
         const mat = mesh.material as THREE.MeshStandardMaterial;
         if (mat && mat.emissive) {
-          mat.emissive.lerp(new THREE.Color(0x000000), delta * 7);
+          mat.emissive.lerp(this._blackColor, delta * 7);
           mat.emissiveIntensity = THREE.MathUtils.lerp(mat.emissiveIntensity, 0, delta * 7);
         }
       });
     }
 
     // Pulse biometric core light in sync with music beat
-    const bpm = 132;
+    const bpm = 160;
     const beatTime = time * (bpm / 60) * Math.PI;
     const breath = Math.sin(beatTime);
     if (this.coreLight) {
@@ -1304,9 +2066,15 @@ export class GameArena {
   private animate = () => {
     if (this.isDestroyed) return;
     this.animationFrameId = requestAnimationFrame(this.animate);
+    const frameStart = performance.now();
+    if (this.previousFrameStartMs > 0) {
+      this.currentFrameTimeMs = frameStart - this.previousFrameStartMs;
+    }
+    this.previousFrameStartMs = frameStart;
+    this.updatePerformance(frameStart);
 
     const delta = Math.min(this.clock.getDelta(), 0.1);
-    const elapsedTime = this.clock.getElapsedTime();
+    const elapsedTime = this.clock.elapsedTime;
 
     // 1. Dance & Animation Update
     this.updateMonsterDance(delta, elapsedTime);
@@ -1328,11 +2096,12 @@ export class GameArena {
       this.rhythmShield.rotation.z = Math.sin(elapsedTime * 1.5) * 0.15;
       this.rhythmShield.scale.lerp(this._v1.set(1, 1, 1), delta * 8);
     } else if (this.currentStage === 'stage_3_music_destroyer') {
-      this.bossOrbitRings.forEach((ring, idx) => {
+      for (let idx = 0; idx < this.bossOrbitRings.length; idx++) {
+        const ring = this.bossOrbitRings[idx];
         const speed = (idx + 1) * 0.7 * (idx % 2 === 0 ? 1 : -1);
         ring.rotation.x += delta * speed;
         ring.rotation.y += delta * (speed * 0.8);
-      });
+      }
     }
 
     // 3. Strobe decay
@@ -1349,27 +2118,88 @@ export class GameArena {
       p.mesh.rotation.y += delta * 6;
 
       if (p.progress >= 1.0) {
-        this.triggerMonsterHitReaction(p.colorHex || 0x00f0ff, 50);
+        this.impactCallback?.(
+          p.isSuperAttack,
+          p.instrumentId,
+          p.comboCount,
+          p.judgment
+        );
+        const impactPosition = this.impactPosition;
+        const particleCount = Math.min(55, 28 + Math.max(0, p.comboCount - 1) * 3);
+        this.spawnParticlesAt(impactPosition, p.colorHex || 0x00f0ff, particleCount);
+        this.spawnImpactRings(impactPosition, p.colorHex || 0x00f0ff, p.comboCount, p.isSuperAttack);
+        this.showDamageNumber(p.damage, p.comboCount, p.colorHex);
+        if (p.comboCount >= 10) {
+          this.triggerScreenShake(0.16);
+          this.triggerStrobe(p.colorHex);
+        }
         this.scene.remove(p.mesh);
+        this.disposeObjectResources(p.mesh);
         this.activeProjectiles.splice(i, 1);
+      } else {
+        const fade = Math.max(0.2, 1 - p.progress * 0.55);
+        for (const { material, opacity } of p.materials) {
+          material.opacity = opacity * fade;
+        }
+      }
+    }
+
+    for (let i = this.activeImpactRings.length - 1; i >= 0; i--) {
+      const ring = this.activeImpactRings[i];
+      ring.age += delta;
+      if (ring.age < 0) continue;
+      const progress = Math.min(1, ring.age / ring.lifetime);
+      const scale = THREE.MathUtils.lerp(0.2, ring.maxScale, progress);
+      ring.mesh.scale.setScalar(scale);
+      const material = ring.mesh.material as THREE.MeshBasicMaterial;
+      material.opacity = (1 - progress) * 0.92;
+      if (ring.age >= ring.lifetime) {
+        this.scene.remove(ring.mesh);
+        this.disposeObjectResources(ring.mesh);
+        this.activeImpactRings.splice(i, 1);
+      }
+    }
+
+    for (let i = this.activeDamageNumbers.length - 1; i >= 0; i--) {
+      const label = this.activeDamageNumbers[i];
+      label.age += delta;
+      label.sprite.position.y += delta * 0.55;
+      (label.sprite.material as THREE.SpriteMaterial).opacity = Math.max(
+        0,
+        1 - label.age / label.lifetime
+      );
+      if (label.age >= label.lifetime) {
+        this.scene.remove(label.sprite);
+        this.disposeObjectResources(label.sprite);
+        this.activeDamageNumbers.splice(i, 1);
       }
     }
 
     // 5. Particles update
     if (this.impactParticles) {
       let activeCount = 0;
+      let particlesChanged = false;
       for (let i = 0; i < this.MAX_PARTICLES; i++) {
         if (this.particleLifespans[i] > 0) {
           this.particleLifespans[i] -= delta * 1.4;
           const idx = i * 3;
-          this.particlePositions[idx] += this.particleVelocities[idx] * delta;
-          this.particlePositions[idx + 1] += this.particleVelocities[idx + 1] * delta;
-          this.particlePositions[idx + 2] += this.particleVelocities[idx + 2] * delta;
-          this.particleVelocities[idx + 1] -= 9.8 * delta;
-          activeCount++;
+          if (this.particleLifespans[i] <= 0) {
+            this.particlePositions[idx] = this.HIDDEN_PARTICLE_POSITION;
+            this.particlePositions[idx + 1] = this.HIDDEN_PARTICLE_POSITION;
+            this.particlePositions[idx + 2] = this.HIDDEN_PARTICLE_POSITION;
+            particlesChanged = true;
+          } else {
+            this.particlePositions[idx] += this.particleVelocities[idx] * delta;
+            this.particlePositions[idx + 1] += this.particleVelocities[idx + 1] * delta;
+            this.particlePositions[idx + 2] += this.particleVelocities[idx + 2] * delta;
+            this.particleVelocities[idx + 1] -= 9.8 * delta;
+            activeCount++;
+            particlesChanged = true;
+          }
         }
       }
-      if (activeCount > 0) {
+      this.activeParticleCount = activeCount;
+      if (particlesChanged) {
         this.impactParticles.geometry.attributes.position.needsUpdate = true;
       }
     }
@@ -1402,13 +2232,37 @@ export class GameArena {
   public dispose() {
     this.isDestroyed = true;
     window.removeEventListener('resize', this.onResize);
+    document.removeEventListener('visibilitychange', this.onVisibilityChange);
+    this.animationMixer?.stopAllAction();
+    this.animationMixer = null;
     if (this.animationFrameId !== null) {
       cancelAnimationFrame(this.animationFrameId);
       this.animationFrameId = null;
     }
+    const geometries = new Set<THREE.BufferGeometry>();
+    const materials = new Set<THREE.Material>();
+    const textures = new Set<THREE.Texture>();
+    this.scene.traverse((object) => {
+      const mesh = object as THREE.Mesh;
+      if (mesh.geometry) geometries.add(mesh.geometry);
+      if (!mesh.material) return;
+      const objectMaterials = Array.isArray(mesh.material) ? mesh.material : [mesh.material];
+      for (const material of objectMaterials) {
+        materials.add(material);
+        for (const value of Object.values(material)) {
+          if (value instanceof THREE.Texture) textures.add(value);
+        }
+      }
+    });
+    geometries.forEach((geometry) => geometry.dispose());
+    materials.forEach((material) => material.dispose());
+    textures.forEach((texture) => texture.dispose());
+    this.scene.environment?.dispose();
+    this.scene.clear();
     if (this.renderer.domElement && this.renderer.domElement.parentNode) {
       this.renderer.domElement.parentNode.removeChild(this.renderer.domElement);
     }
+    this.renderer.renderLists.dispose();
     this.renderer.dispose();
   }
 }

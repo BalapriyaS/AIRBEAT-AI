@@ -1,40 +1,40 @@
 import { InstrumentId, SuperAttackId } from '../types/game';
 
 /**
- * AIRBEAT AI - Professional High-Fidelity Web Audio Engine
- * Real instrument synthesis engine generating rich, authentic 5.0-second
- * musical solos for all 6 instruments (Drums, Electric Guitar, Grand Piano,
- * Trumpet Fanfare, Bowed Violin, DJ Bass Drop/Scratch), plus 132 BPM battle BGM
- * and punchy responsive arcade game sound effects.
+ * AIRBEAT AI - Procedural Web Audio engine for instrument motifs, battle music,
+ * and responsive arcade game sound effects.
  */
 class AudioEngine {
   private ctx: AudioContext | null = null;
   private masterGain: GainNode | null = null;
   private sfxGain: GainNode | null = null;
   private musicGain: GainNode | null = null;
+  private compressor: DynamicsCompressorNode | null = null;
+  private guitarShaper: WaveShaperNode | null = null;
+  private noiseBuffer: AudioBuffer | null = null;
 
   private isMuted: boolean = false;
-  private masterVolume: number = 0.90;
-  private sfxVolume: number = 1.0;
-  private musicVolume: number = 0.32;
+  private masterVolume: number = 0.85;
+  private sfxVolume: number = 0.72;
+  private musicVolume: number = 0.3;
   private isMusicPlaying: boolean = false;
-  private musicIntervalId: number | null = null;
+  private musicSchedulerId: number | null = null;
+  private musicStep: number = 0;
+  private nextMusicStepTime: number = 0;
+  private comboIntensity: number = 1;
   private isInitialized: boolean = false;
 
-  // Active phrase & voice tracking (dedicated bus per phrase to prevent clicks or cutoffs)
+  // Active instrument indicator
   private currentActiveInstrument: InstrumentId | null = null;
   private currentPhraseGain: GainNode | null = null;
   private currentPhraseOscs: { stop: (time: number) => void }[] = [];
   private phraseStartTime: number = 0;
   private phraseEndTime: number = 0;
   private activePhraseTimeoutId: number | null = null;
-  private duckMusicTimeoutId: number | null = null;
 
   public init() {
     if (this.ctx && this.ctx.state !== 'closed') {
-      if (this.ctx.state === 'suspended') {
-        this.ctx.resume().catch(() => {});
-      }
+      this.resumeContext();
       return;
     }
 
@@ -47,7 +47,14 @@ class AudioEngine {
       // Master bus
       this.masterGain = this.ctx.createGain();
       this.masterGain.gain.setValueAtTime(this.isMuted ? 0 : this.masterVolume, this.ctx.currentTime);
-      this.masterGain.connect(this.ctx.destination);
+      this.compressor = this.ctx.createDynamicsCompressor();
+      this.compressor.threshold.setValueAtTime(-8, this.ctx.currentTime);
+      this.compressor.knee.setValueAtTime(8, this.ctx.currentTime);
+      this.compressor.ratio.setValueAtTime(12, this.ctx.currentTime);
+      this.compressor.attack.setValueAtTime(0.003, this.ctx.currentTime);
+      this.compressor.release.setValueAtTime(0.18, this.ctx.currentTime);
+      this.masterGain.connect(this.compressor);
+      this.compressor.connect(this.ctx.destination);
 
       // SFX bus
       this.sfxGain = this.ctx.createGain();
@@ -59,6 +66,11 @@ class AudioEngine {
       this.musicGain.gain.setValueAtTime(this.musicVolume, this.ctx.currentTime);
       this.musicGain.connect(this.masterGain);
 
+      this.guitarShaper = this.ctx.createWaveShaper();
+      this.guitarShaper.curve = new Float32Array(this.makeDistortionCurve(120));
+      this.guitarShaper.oversample = '2x';
+      this.guitarShaper.connect(this.sfxGain);
+      this.noiseBuffer = this.createNoiseBuffer();
       this.isInitialized = true;
     } catch (err) {
       console.warn('[AIRBEAT AI] AudioContext initialization notice:', err);
@@ -68,42 +80,56 @@ class AudioEngine {
   public ensureContext() {
     if (!this.ctx || this.ctx.state === 'closed') {
       this.init();
-    } else if (this.ctx.state === 'suspended') {
-      this.ctx.resume().catch(() => {});
+    } else {
+      this.resumeContext();
     }
+  }
+
+  private resumeContext() {
+    if (this.ctx?.state === 'suspended') {
+      this.ctx.resume().catch((error: unknown) => {
+        console.warn('[AIRBEAT AI] Audio playback could not be resumed:', error);
+      });
+    }
+  }
+
+  private rampGain(gain: GainNode | null, value: number) {
+    if (!gain || !this.ctx) return;
+    const now = this.ctx.currentTime;
+    gain.gain.cancelScheduledValues(now);
+    gain.gain.setValueAtTime(gain.gain.value, now);
+    gain.gain.linearRampToValueAtTime(value, now + 0.025);
   }
 
   public setMasterVolume(val: number) {
     this.masterVolume = Math.max(0, Math.min(1, val));
     if (this.masterGain && this.ctx) {
-      this.masterGain.gain.setValueAtTime(
-        this.isMuted ? 0 : this.masterVolume,
-        this.ctx.currentTime
-      );
+      this.rampGain(this.masterGain, this.isMuted ? 0 : this.masterVolume);
     }
   }
 
   public setSfxVolume(val: number) {
     this.sfxVolume = Math.max(0, Math.min(1, val));
     if (this.sfxGain && this.ctx) {
-      this.sfxGain.gain.setValueAtTime(this.sfxVolume, this.ctx.currentTime);
+      this.rampGain(this.sfxGain, this.sfxVolume);
     }
   }
 
   public setMusicVolume(val: number) {
     this.musicVolume = Math.max(0, Math.min(1, val));
     if (this.musicGain && this.ctx) {
-      this.musicGain.gain.setValueAtTime(this.musicVolume, this.ctx.currentTime);
+      this.rampGain(this.musicGain, this.musicVolume);
     }
+  }
+
+  public setComboIntensity(combo: number) {
+    this.comboIntensity = Math.max(1, Math.min(10, combo));
   }
 
   public toggleMute(): boolean {
     this.isMuted = !this.isMuted;
     if (this.masterGain && this.ctx) {
-      this.masterGain.gain.setValueAtTime(
-        this.isMuted ? 0 : this.masterVolume,
-        this.ctx.currentTime
-      );
+      this.rampGain(this.masterGain, this.isMuted ? 0 : this.masterVolume);
     }
     return this.isMuted;
   }
@@ -119,36 +145,23 @@ class AudioEngine {
   public getSoloRemainingSeconds(): number {
     if (!this.currentActiveInstrument) return 0;
     const remaining = (this.phraseEndTime - performance.now()) / 1000;
-    return Math.max(0, Math.min(5.0, remaining));
+    return Math.max(0, Math.min(1.0, remaining));
   }
 
   public getSoloProgress(): number {
     if (!this.currentActiveInstrument) return 0;
     const remaining = (this.phraseEndTime - performance.now()) / 1000;
-    return Math.max(0, Math.min(1.0, 1.0 - remaining / 5.0));
+    return Math.max(0, Math.min(1.0, 1.0 - remaining / 1.0));
   }
 
-  // Smoothly duck background music volume while the 5-second real instrument solo plays
-  private duckMusic(durationSec: number = 5.0) {
-    if (!this.musicGain || !this.ctx || !this.isMusicPlaying) return;
-    const t = this.ctx.currentTime;
-    this.musicGain.gain.cancelScheduledValues(t);
-    this.musicGain.gain.setValueAtTime(this.musicGain.gain.value, t);
-    // Drop BGM smoothly to 20% so the real instrument solo is bright, punchy, and clear
-    this.musicGain.gain.linearRampToValueAtTime(this.musicVolume * 0.2, t + 0.08);
-
-    if (this.duckMusicTimeoutId !== null) {
-      clearTimeout(this.duckMusicTimeoutId);
+  private createNoiseBuffer(): AudioBuffer {
+    if (!this.ctx) throw new Error('AudioContext is not initialized');
+    const buffer = this.ctx.createBuffer(1, this.ctx.sampleRate * 0.25, this.ctx.sampleRate);
+    const samples = buffer.getChannelData(0);
+    for (let i = 0; i < samples.length; i++) {
+      samples[i] = (Math.random() * 2 - 1) * (1 - i / samples.length);
     }
-    this.duckMusicTimeoutId = window.setTimeout(() => {
-      if (this.musicGain && this.ctx && this.isMusicPlaying) {
-        const resumeT = this.ctx.currentTime;
-        this.musicGain.gain.cancelScheduledValues(resumeT);
-        this.musicGain.gain.setValueAtTime(this.musicGain.gain.value, resumeT);
-        this.musicGain.gain.linearRampToValueAtTime(this.musicVolume, resumeT + 0.5);
-      }
-      this.duckMusicTimeoutId = null;
-    }, durationSec * 1000);
+    return buffer;
   }
 
   // Non-linear distortion curve generator for authentic electric guitar & 808 saturation
@@ -199,64 +212,203 @@ class AudioEngine {
     this.currentActiveInstrument = null;
   }
 
-  /**
-   * Play Instrument: Triggers an authentic real-instrument musical solo lasting a full 5.0 seconds!
-   * Single click/tap triggers the entire 5.0-second performance.
-   * Ducks background music and visualizes active solo in HUD and pads.
-   */
-  public playInstrument(instrument: InstrumentId, variation: number = 0.5) {
-    this.ensureContext();
-    if (!this.ctx || !this.sfxGain || this.isMuted) return;
+  private playTone(
+    bus: AudioNode,
+    frequency: number,
+    start: number,
+    duration: number,
+    type: OscillatorType,
+    volume: number,
+    endFrequency?: number
+  ) {
+    if (!this.ctx) return;
+    const oscillator = this.ctx.createOscillator();
+    const envelope = this.ctx.createGain();
+    oscillator.type = type;
+    oscillator.frequency.setValueAtTime(Math.max(20, frequency), start);
+    if (endFrequency !== undefined) {
+      oscillator.frequency.exponentialRampToValueAtTime(Math.max(20, endFrequency), start + duration);
+    }
+    envelope.gain.setValueAtTime(0.0001, start);
+    envelope.gain.linearRampToValueAtTime(volume, start + Math.min(0.012, duration * 0.2));
+    envelope.gain.exponentialRampToValueAtTime(0.0001, start + duration);
+    oscillator.connect(envelope);
+    envelope.connect(bus);
+    oscillator.start(start);
+    oscillator.stop(start + duration + 0.01);
+  }
 
-    // Fade out previous phrase smoothly
-    this.stopCurrentPhrase(0.05);
+  private playNoise(bus: AudioNode, start: number, duration: number, volume: number, highPassHz = 900) {
+    if (!this.ctx || !this.noiseBuffer) return;
+    const source = this.ctx.createBufferSource();
+    const filter = this.ctx.createBiquadFilter();
+    const envelope = this.ctx.createGain();
+    source.buffer = this.noiseBuffer;
+    filter.type = 'highpass';
+    filter.frequency.setValueAtTime(highPassHz, start);
+    envelope.gain.setValueAtTime(volume, start);
+    envelope.gain.exponentialRampToValueAtTime(0.0001, start + duration);
+    source.connect(filter);
+    filter.connect(envelope);
+    envelope.connect(bus);
+    source.start(start);
+    source.stop(start + duration + 0.01);
+  }
 
-    // Create a dedicated phrase bus for this 5-second solo
-    const phraseBus = this.ctx.createGain();
-    phraseBus.gain.setValueAtTime(1.15, this.ctx.currentTime);
-    phraseBus.connect(this.sfxGain);
-
-    this.currentPhraseGain = phraseBus;
-    this.currentPhraseOscs = [];
-    this.currentActiveInstrument = instrument;
-
-    const phraseDuration = 5.0; // Full 5.0-second performance
-    const now = performance.now();
-    this.phraseStartTime = now;
-    this.phraseEndTime = now + phraseDuration * 1000;
-
-    // Duck background music for crystal-clear instrument solo
-    this.duckMusic(phraseDuration);
-
-    const t = this.ctx.currentTime + 0.015;
+  private playInstrumentMotif(
+    instrument: InstrumentId,
+    start: number,
+    variation: number,
+    targetBus: AudioNode
+  ) {
+    if (!this.ctx) return;
+    const beat = 60 / 160;
+    const offset = (variation - 0.5) * 0.025;
+    const minor = [0, 3, 5, 7, 10];
+    const root = 87.31;
+    const note = (degree: number) => root * Math.pow(2, minor[degree % minor.length] / 12);
+    const bus = targetBus;
 
     switch (instrument) {
       case 'drums':
-        this.playDrumsPhrase(t, phraseBus, variation);
-        break;
-      case 'guitar':
-        this.playGuitarPhrase(t, phraseBus, variation);
+        this.playTone(bus, 150, start, 0.16, 'sine', 0.72, 42);
+        this.playNoise(bus, start + 0.035, 0.12, 0.23, 1200);
+        this.playNoise(bus, start + beat * 0.25, 0.09, 0.18, 1800);
+        this.playTone(bus, 72, start + beat * 0.5, 0.22, 'triangle', 0.42, 38);
         break;
       case 'piano':
-        this.playPianoPhrase(t, phraseBus, variation);
-        break;
-      case 'trumpet':
-        this.playTrumpetPhrase(t, phraseBus, variation);
+        [note(2) * 2, note(4) * 2, note(1) * 4].forEach((freq, index) => {
+          this.playTone(bus, freq, start + index * beat * 0.24 + offset, 0.24, 'triangle', 0.22);
+          this.playTone(bus, freq * 2, start + index * beat * 0.24 + offset, 0.14, 'sine', 0.07);
+        });
         break;
       case 'violin':
-        this.playViolinPhrase(t, phraseBus, variation);
+        [note(0) * 2, note(2) * 2, note(4) * 2, note(3) * 2].forEach((freq, index) => {
+          const at = start + index * beat * 0.18 + offset;
+          this.playTone(bus, freq, at, 0.22, 'sawtooth', 0.13, freq * 1.025);
+          this.playTone(bus, freq * 2, at, 0.16, 'triangle', 0.06);
+        });
+        this.playTone(bus, note(4), start, 0.32, 'sawtooth', 0.18, note(0) * 2);
+        break;
+      case 'guitar': {
+        const chord = [note(0) * 2, note(2) * 2, note(4) * 2];
+        chord.forEach((freq, index) => {
+          const oscillator = this.ctx!.createOscillator();
+          const envelope = this.ctx!.createGain();
+          oscillator.type = 'sawtooth';
+          oscillator.frequency.setValueAtTime(freq, start + index * 0.008);
+          envelope.gain.setValueAtTime(0.0001, start);
+          envelope.gain.linearRampToValueAtTime(0.12, start + 0.012);
+          envelope.gain.exponentialRampToValueAtTime(0.0001, start + 0.28);
+          oscillator.connect(envelope);
+          envelope.connect(this.guitarShaper || bus);
+          oscillator.start(start + index * 0.008);
+          oscillator.stop(start + 0.3);
+        });
+        this.playTone(bus, 1250, start, 0.09, 'square', 0.08, 240);
+        break;
+      }
+      case 'trumpet':
+        [note(0) * 2, note(3) * 2, note(4) * 2].forEach((freq, index) => {
+          const at = start + index * beat * 0.22 + offset;
+          this.playTone(bus, freq, at, 0.2, 'sawtooth', 0.17);
+          this.playTone(bus, freq * 2, at, 0.16, 'triangle', 0.08);
+        });
+        this.playTone(bus, 520, start, 0.16, 'sawtooth', 0.1, 980);
         break;
       case 'dj':
-        this.playDJPhrase(t, phraseBus, variation);
+        this.playTone(bus, 95, start, 0.45, 'sawtooth', 0.34, 34);
+        this.playTone(bus, 55, start + 0.04, 0.32, 'sine', 0.34, 32);
+        this.playTone(bus, 180, start + beat * 0.25, 0.2, 'square', 0.1, 70);
+        this.playNoise(bus, start, 0.14, 0.11, 1100);
         break;
     }
+  }
+
+  public playInstrument(instrument: InstrumentId, variation: number = 0.5) {
+    this.ensureContext();
+    if (!this.ctx || !this.sfxGain || this.isMuted) return;
+    this.stopCurrentPhrase(0.025);
+    if (this.activePhraseTimeoutId !== null) {
+      clearTimeout(this.activePhraseTimeoutId);
+    }
+    const phraseGain = this.ctx.createGain();
+    phraseGain.gain.setValueAtTime(0.72, this.ctx.currentTime);
+    phraseGain.connect(this.sfxGain);
+    this.currentPhraseGain = phraseGain;
+    this.currentPhraseOscs = [];
+    this.currentActiveInstrument = instrument;
+    const now = performance.now();
+    this.phraseStartTime = now;
+    this.phraseEndTime = now + 900;
+    this.playInstrumentMotif(
+      instrument,
+      this.ctx.currentTime + 0.004,
+      variation,
+      phraseGain
+    );
 
     this.activePhraseTimeoutId = window.setTimeout(() => {
       if (this.currentActiveInstrument === instrument) {
         this.currentActiveInstrument = null;
       }
+      if (this.currentPhraseGain === phraseGain) {
+        this.currentPhraseGain = null;
+        this.currentPhraseOscs = [];
+        phraseGain.disconnect();
+      }
       this.activePhraseTimeoutId = null;
-    }, phraseDuration * 1000);
+    }, 900);
+  }
+
+  public playAttackLaunch(instrument: InstrumentId, combo: number = 1) {
+    this.ensureContext();
+    if (!this.ctx || !this.sfxGain || this.isMuted) return;
+    const t = this.ctx.currentTime + 0.004;
+    const intensity = Math.min(1.25, 0.8 + Math.max(0, combo - 1) * 0.035);
+
+    switch (instrument) {
+      case 'drums':
+        this.playTone(this.sfxGain, 105, t, 0.18, 'sine', 0.34 * intensity, 38);
+        this.playNoise(this.sfxGain, t, 0.055, 0.12 * intensity, 1600);
+        break;
+      case 'piano':
+        this.playTone(this.sfxGain, 880, t, 0.11, 'triangle', 0.18 * intensity, 1320);
+        break;
+      case 'violin':
+        this.playTone(this.sfxGain, 330, t, 0.22, 'sawtooth', 0.12 * intensity, 990);
+        break;
+      case 'guitar':
+        this.playTone(this.sfxGain, 196, t, 0.14, 'square', 0.2 * intensity, 98);
+        break;
+      case 'trumpet':
+        this.playTone(this.sfxGain, 440, t, 0.16, 'sawtooth', 0.14 * intensity, 660);
+        break;
+      case 'dj':
+        this.playTone(this.sfxGain, 140, t, 0.28, 'sawtooth', 0.3 * intensity, 36);
+        break;
+    }
+  }
+
+  public playComboAccent(combo: number) {
+    if (combo !== 3 && combo !== 8) return;
+    this.ensureContext();
+    if (!this.ctx || !this.sfxGain || this.isMuted) return;
+    const t = this.ctx.currentTime + 0.004;
+    const notes = combo === 8 ? [523.25, 659.25, 783.99] : [659.25, 783.99];
+    notes.forEach((frequency, index) => {
+      this.playTone(
+        this.sfxGain!,
+        frequency,
+        t + index * 0.045,
+        combo === 8 ? 0.34 : 0.22,
+        'triangle',
+        combo === 8 ? 0.17 : 0.12
+      );
+    });
+    if (combo === 8) {
+      this.playNoise(this.sfxGain, t, 0.13, 0.1, 1800);
+    }
   }
 
   // =========================================================================
@@ -939,37 +1091,20 @@ class AudioEngine {
   public playSuperAttack(id: SuperAttackId) {
     this.ensureContext();
     if (!this.ctx || !this.sfxGain || this.isMuted) return;
+    const t = this.ctx.currentTime + 0.004;
+    const root = id === 'sonic_storm' ? 523.25 : id === 'resonance_drop' ? 415.3 : 349.23;
+    this.playTone(this.sfxGain, root * 0.5, t, 0.42, 'sawtooth', 0.13, root * 2.5);
+    this.playTone(this.sfxGain, root, t + 0.1, 0.3, 'triangle', 0.12, root * 1.5);
+    this.playNoise(this.sfxGain, t + 0.24, 0.18, 0.12, 1100);
+  }
 
-    this.stopCurrentPhrase(0.05);
-
-    const phraseBus = this.ctx.createGain();
-    phraseBus.gain.setValueAtTime(1.2, this.ctx.currentTime);
-    phraseBus.connect(this.sfxGain);
-
-    this.currentPhraseGain = phraseBus;
-    this.currentPhraseOscs = [];
-
-    const t = this.ctx.currentTime + 0.015;
-
-    switch (id) {
-      case 'thunderquake': // Drums + Guitar
-        this.playDrumsPhrase(t, phraseBus, 0.9);
-        this.playGuitarPhrase(t, phraseBus, 0.9);
-        this.playThunderRumble(t, phraseBus);
-        break;
-
-      case 'sonic_storm': // Piano + Trumpet
-        this.playPianoPhrase(t, phraseBus, 0.9);
-        this.playTrumpetPhrase(t, phraseBus, 0.9);
-        this.playShimmeringChord(t, phraseBus);
-        break;
-
-      case 'resonance_drop': // Violin + DJ Mixer
-        this.playViolinPhrase(t, phraseBus, 0.9);
-        this.playDJPhrase(t, phraseBus, 0.9);
-        this.playSirenRiser(t, phraseBus);
-        break;
-    }
+  public playMonsterDefeat() {
+    this.ensureContext();
+    if (!this.ctx || !this.sfxGain || this.isMuted) return;
+    const t = this.ctx.currentTime;
+    this.playTone(this.sfxGain, 72, t, 1.1, 'sine', 0.65, 26);
+    this.playTone(this.sfxGain, 180, t, 0.65, 'sawtooth', 0.16, 720);
+    this.playNoise(this.sfxGain, t + 0.72, 0.32, 0.22, 500);
   }
 
   private playThunderRumble(t: number, targetBus: GainNode) {
@@ -1102,7 +1237,12 @@ class AudioEngine {
     osc.stop(t + 0.35);
   }
 
-  public playMonsterHitSound(isSuper: boolean = false) {
+  public playMonsterHitSound(
+    isSuper: boolean = false,
+    instrument: InstrumentId = 'drums',
+    combo: number = 1,
+    judgment?: 'perfect' | 'great'
+  ) {
     this.ensureContext();
     if (!this.ctx || !this.sfxGain || this.isMuted) return;
     const t = this.ctx.currentTime;
@@ -1114,7 +1254,7 @@ class AudioEngine {
     subOsc.frequency.setValueAtTime(isSuper ? 160 : 120, t);
     subOsc.frequency.exponentialRampToValueAtTime(32, t + (isSuper ? 0.45 : 0.28));
 
-    subGain.gain.setValueAtTime(isSuper ? 0.8 : 0.6, t);
+    subGain.gain.setValueAtTime(isSuper ? 0.72 : 0.4, t);
     subGain.gain.exponentialRampToValueAtTime(0.001, t + (isSuper ? 0.45 : 0.28));
 
     subOsc.connect(subGain);
@@ -1136,6 +1276,40 @@ class AudioEngine {
     snapGain.connect(this.sfxGain);
     snapOsc.start(t);
     snapOsc.stop(t + 0.12);
+
+    const impactNotes: Record<InstrumentId, number> = {
+      drums: 82.41,
+      piano: 783.99,
+      violin: 659.25,
+      guitar: 196,
+      trumpet: 523.25,
+      dj: 55
+    };
+    if (isSuper) {
+      this.playNoise(this.sfxGain, t, 0.2, 0.18, 700);
+      this.playTone(this.sfxGain, 180, t, 0.5, 'sine', 0.48, 32);
+      [523.25, 659.25, 783.99].forEach((frequency, index) => {
+        this.playTone(this.sfxGain!, frequency, t + 0.035 * index, 0.35, 'triangle', 0.12);
+      });
+    } else {
+      const impactGain = combo >= 8 ? 0.12 : combo >= 4 ? 0.08 : 0.055;
+      this.playTone(
+        this.sfxGain,
+        impactNotes[instrument],
+        t,
+        0.15,
+        instrument === 'guitar' || instrument === 'trumpet' ? 'sawtooth' : 'triangle',
+        impactGain
+      );
+      if (combo >= 8) this.playNoise(this.sfxGain, t, 0.075, 0.08, 2200);
+    }
+    if (judgment === 'perfect') {
+      this.playTone(this.sfxGain, 1046.5, t + 0.015, 0.22, 'sine', 0.16);
+      this.playTone(this.sfxGain, 1567.98, t + 0.06, 0.25, 'sine', 0.13);
+    } else if (judgment === 'great') {
+      this.playTone(this.sfxGain, 659.25, t + 0.015, 0.18, 'triangle', 0.11);
+      this.playTone(this.sfxGain, 987.77, t + 0.06, 0.2, 'triangle', 0.09);
+    }
   }
 
   public playFeverSound() {
@@ -1185,6 +1359,11 @@ class AudioEngine {
       osc.start(t + idx * 0.12);
       osc.stop(t + idx * 0.12 + duration);
     });
+    [523.25, 659.25, 783.99].forEach((frequency) => {
+      this.playTone(this.sfxGain!, frequency, t + 0.5, 1.25, 'triangle', 0.12);
+    });
+    this.playTone(this.sfxGain, 130, t + 0.48, 0.7, 'sine', 0.35, 65);
+    this.playNoise(this.sfxGain, t + 0.5, 0.42, 0.11, 2600);
   }
 
   public playGameOver() {
@@ -1212,87 +1391,98 @@ class AudioEngine {
   }
 
   // =========================================================================
-  // 9. PROCEDURAL BACKGROUND BATTLE BEAT (FAST 132 BPM Cyber-Funk)
+  // 9. PROCEDURAL BACKGROUND BATTLE BEAT (136 BPM)
   // =========================================================================
+  private scheduleMusicStep(time: number, step: number) {
+    if (!this.ctx || !this.musicGain || this.isMuted) return;
+
+    const beat = 60 / 136;
+    const barStep = step % 16;
+    const bar = Math.floor(step / 16);
+    const energy = 0.9 + (this.comboIntensity - 1) * 0.035;
+    const bassline = [65.41, 65.41, 77.78, 65.41, 87.31, 65.41, 98, 77.78];
+    const arpeggio = [523.25, 622.25, 698.46, 783.99, 932.33, 783.99, 698.46, 622.25];
+
+    if (barStep % 4 === 0) {
+      this.playTone(
+        this.musicGain,
+        barStep === 0 ? 145 : 118,
+        time,
+        0.18,
+        'sine',
+        0.22 * energy,
+        38
+      );
+    }
+    if (barStep === 4 || barStep === 12) {
+      this.playTone(this.musicGain, 205, time, 0.1, 'triangle', 0.1 * energy, 95);
+      this.playNoise(this.musicGain, time, 0.11, 0.095 * energy, 1500);
+    }
+    if (barStep % 2 === 1 || barStep === 6 || barStep === 14) {
+      this.playNoise(this.musicGain, time, 0.045, 0.035 * energy, 6500);
+    }
+    if (barStep % 2 === 0) {
+      this.playTone(
+        this.musicGain,
+        bassline[(bar * 2 + barStep / 2) % bassline.length],
+        time,
+        beat * 0.28,
+        'triangle',
+        0.1 * energy
+      );
+      this.playTone(
+        this.musicGain,
+        arpeggio[(barStep / 2 + bar) % arpeggio.length],
+        time,
+        beat * 0.2,
+        'triangle',
+        (this.comboIntensity >= 5 ? 0.048 : 0.032) * energy
+      );
+    }
+    if (this.comboIntensity >= 3 && (barStep === 10 || barStep === 14)) {
+      this.playTone(this.musicGain, 880, time, beat * 0.18, 'square', 0.025 * energy);
+    }
+    if (this.comboIntensity >= 8 && barStep >= 12) {
+      this.playNoise(this.musicGain, time, 0.035, 0.045 * energy, 3200);
+    }
+    if (step % 64 >= 60) {
+      this.playTone(this.musicGain, 170 + (step % 4) * 95, time, beat * 0.24, 'sawtooth', 0.035, 900);
+    }
+    if (step % 64 === 0) {
+      this.playTone(this.musicGain, 110, time, 0.38, 'sine', 0.16, 32);
+    }
+  }
+
   public startBattleMusic() {
     if (this.isMusicPlaying) return;
     this.ensureContext();
-    if (!this.ctx) return;
+    if (!this.ctx || !this.musicGain) return;
 
     this.isMusicPlaying = true;
-    let step = 0;
-    const bpm = 132; // Energetic, fast arcade battle tempo
-    const stepInterval = (60 / bpm / 4) * 1000; // 16th notes (113.6ms)
-
-    // Bassline notes (F minor cyber groove)
-    const bassline = [87.31, 87.31, 103.83, 87.31, 116.54, 87.31, 130.81, 103.83];
-
-    this.musicIntervalId = window.setInterval(() => {
-      if (!this.isMusicPlaying || !this.ctx || !this.musicGain || this.isMuted) return;
-      const t = this.ctx.currentTime;
-
-      // Kick on quarter beats (steps 0, 4, 8, 12)
-      if (step % 4 === 0) {
-        const kOsc = this.ctx.createOscillator();
-        const kGain = this.ctx.createGain();
-        kOsc.frequency.setValueAtTime(115, t);
-        kOsc.frequency.exponentialRampToValueAtTime(40, t + 0.09);
-        kGain.gain.setValueAtTime(0.28, t);
-        kGain.gain.exponentialRampToValueAtTime(0.001, t + 0.16);
-        kOsc.connect(kGain);
-        kGain.connect(this.musicGain);
-        kOsc.start(t);
-        kOsc.stop(t + 0.16);
+    const stepDuration = 60 / 136 / 4;
+    this.nextMusicStepTime = this.ctx.currentTime + 0.02;
+    this.musicSchedulerId = window.setInterval(() => {
+      if (!this.isMusicPlaying || !this.ctx || this.ctx.state !== 'running') return;
+      const scheduleThrough = this.ctx.currentTime + 0.12;
+      while (this.nextMusicStepTime < scheduleThrough) {
+        this.scheduleMusicStep(this.nextMusicStepTime, this.musicStep);
+        this.nextMusicStepTime += stepDuration;
+        this.musicStep = (this.musicStep + 1) % 64;
       }
-
-      // Snare on beats 4 and 12
-      if (step % 8 === 4) {
-        const sOsc = this.ctx.createOscillator();
-        const sGain = this.ctx.createGain();
-        sOsc.type = 'triangle';
-        sOsc.frequency.setValueAtTime(185, t);
-        sGain.gain.setValueAtTime(0.18, t);
-        sGain.gain.exponentialRampToValueAtTime(0.001, t + 0.11);
-        sOsc.connect(sGain);
-        sGain.connect(this.musicGain);
-        sOsc.start(t);
-        sOsc.stop(t + 0.11);
-      }
-
-      // Sub-bass groove on 8th notes
-      if (step % 2 === 0) {
-        const note = bassline[(step / 2) % bassline.length];
-        const bOsc = this.ctx.createOscillator();
-        const bGain = this.ctx.createGain();
-        bOsc.type = 'sawtooth';
-        bOsc.frequency.setValueAtTime(note, t);
-        bGain.gain.setValueAtTime(0.11, t);
-        bGain.gain.exponentialRampToValueAtTime(0.001, t + 0.09);
-        bOsc.connect(bGain);
-        bGain.connect(this.musicGain);
-        bOsc.start(t);
-        bOsc.stop(t + 0.09);
-      }
-
-      step = (step + 1) % 16;
-    }, stepInterval);
+    }, 25);
   }
 
   public stopBattleMusic() {
     this.isMusicPlaying = false;
-    if (this.musicIntervalId !== null) {
-      clearInterval(this.musicIntervalId);
-      this.musicIntervalId = null;
+    if (this.musicSchedulerId !== null) {
+      clearInterval(this.musicSchedulerId);
+      this.musicSchedulerId = null;
     }
   }
 
   public cleanup() {
     this.stopBattleMusic();
     this.stopCurrentPhrase(0.02);
-    if (this.duckMusicTimeoutId !== null) {
-      clearTimeout(this.duckMusicTimeoutId);
-      this.duckMusicTimeoutId = null;
-    }
     if (this.ctx && this.ctx.state !== 'closed') {
       try {
         this.ctx.close();
@@ -1301,6 +1491,9 @@ class AudioEngine {
       }
     }
     this.ctx = null;
+    this.compressor = null;
+    this.guitarShaper = null;
+    this.noiseBuffer = null;
     this.isInitialized = false;
   }
 }

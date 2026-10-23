@@ -19,6 +19,8 @@ interface BottomDockProps {
   onOpenCalibration?: () => void;
   isCameraVisible: boolean;
   onToggleCameraVisible: () => void;
+  reducedEffects: boolean;
+  onToggleReducedEffects: () => void;
 }
 
 export const BottomDock: React.FC<BottomDockProps> = ({
@@ -26,11 +28,15 @@ export const BottomDock: React.FC<BottomDockProps> = ({
   onToggleSuperGuide,
   onOpenCalibration,
   isCameraVisible,
-  onToggleCameraVisible
+  onToggleCameraVisible,
+  reducedEffects,
+  onToggleReducedEffects
 }) => {
   const [isCollapsed, setIsCollapsed] = useState<boolean>(false);
   const [isMuted, setIsMuted] = useState<boolean>(false);
-  const [volume, setVolume] = useState<number>(0.8);
+  const [volume, setVolume] = useState<number>(0.85);
+  const [sfxVolume, setSfxVolume] = useState<number>(0.72);
+  const [musicVolume, setMusicVolume] = useState<number>(0.3);
   const [isMusicActive, setIsMusicActive] = useState<boolean>(true);
 
   const handleMuteToggle = () => {
@@ -42,6 +48,18 @@ export const BottomDock: React.FC<BottomDockProps> = ({
     const val = parseFloat(e.target.value);
     setVolume(val);
     audioEngine.setMasterVolume(val);
+  };
+
+  const handleSfxVolumeChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const val = parseFloat(e.target.value);
+    setSfxVolume(val);
+    audioEngine.setSfxVolume(val);
+  };
+
+  const handleMusicVolumeChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const val = parseFloat(e.target.value);
+    setMusicVolume(val);
+    audioEngine.setMusicVolume(val);
   };
 
   const handleMusicToggle = () => {
@@ -87,8 +105,8 @@ export const BottomDock: React.FC<BottomDockProps> = ({
               {isMuted ? <VolumeX className="w-4 h-4 text-rose-400" /> : <Volume2 className="w-4 h-4" />}
             </button>
 
-            <div className="flex items-center gap-2">
-              <span className="text-[10px] font-mono-tech text-slate-400">VOL</span>
+            <div className="flex items-center gap-1.5">
+              <span className="text-[10px] font-mono-tech text-slate-400">MASTER</span>
               <input
                 type="range"
                 min="0"
@@ -96,7 +114,36 @@ export const BottomDock: React.FC<BottomDockProps> = ({
                 step="0.05"
                 value={volume}
                 onChange={handleVolumeChange}
-                className="w-16 sm:w-20 accent-[#00D9FF] cursor-pointer h-1.5 bg-[#080D18] rounded-lg"
+                aria-label="Master volume"
+                className="w-14 accent-[#00D9FF] cursor-pointer h-1.5 bg-[#080D18] rounded-lg"
+              />
+            </div>
+
+            <div className="flex items-center gap-1.5">
+              <span className="text-[10px] font-mono-tech text-slate-400">MUSIC</span>
+              <input
+                type="range"
+                min="0"
+                max="1"
+                step="0.05"
+                value={musicVolume}
+                onChange={handleMusicVolumeChange}
+                aria-label="Music volume"
+                className="w-14 accent-[#00D9FF] cursor-pointer h-1.5 bg-[#080D18] rounded-lg"
+              />
+            </div>
+
+            <div className="flex items-center gap-1.5">
+              <span className="text-[10px] font-mono-tech text-slate-400">SFX</span>
+              <input
+                type="range"
+                min="0"
+                max="1"
+                step="0.05"
+                value={sfxVolume}
+                onChange={handleSfxVolumeChange}
+                aria-label="Sound effects volume"
+                className="w-14 accent-[#00D9FF] cursor-pointer h-1.5 bg-[#080D18] rounded-lg"
               />
             </div>
 
@@ -116,6 +163,19 @@ export const BottomDock: React.FC<BottomDockProps> = ({
 
           {/* Center: Camera preview toggle & Calibration */}
           <div className="flex items-center gap-2">
+            <button
+              onClick={onToggleReducedEffects}
+              aria-pressed={reducedEffects}
+              title="Reduce camera shake and bright flashes"
+              className={`flex items-center gap-1.5 px-2.5 py-1 rounded-lg border text-[11px] font-mono-tech cursor-pointer transition-colors ${
+                reducedEffects
+                  ? 'border-[#A78BFA]/50 bg-[#A78BFA]/15 text-[#C4B5FD]'
+                  : 'border-[#1687FF]/30 bg-[#080D18] text-slate-400 hover:text-slate-200'
+              }`}
+            >
+              <Sparkles className="w-3.5 h-3.5" />
+              <span>FX: {reducedEffects ? 'REDUCED' : 'FULL'}</span>
+            </button>
             <button
               onClick={onToggleCameraVisible}
               className={`flex items-center gap-1.5 px-3 py-1 rounded-lg border text-xs cursor-pointer transition-colors ${

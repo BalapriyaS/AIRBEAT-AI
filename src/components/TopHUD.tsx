@@ -55,8 +55,13 @@ export const TopHUD: React.FC<TopHUDProps> = ({
 
   const isLowTime = stats.timeRemaining <= 20;
   const groovePercent = Math.max(0, Math.min(100, monster.grooveLevel));
+  const healthPercent = 100 - groovePercent;
   const targetInst = currentChallenge ? INSTRUMENTS[currentChallenge.targetInstrument] : null;
   const activeSolo = audioEngine.getActiveInstrument();
+  const isFinalPrompt =
+    activePrompt === 'FINAL HIT!' ||
+    activePrompt === 'MONSTER DESTROYED!' ||
+    activePrompt === 'VICTORY!';
 
   return (
     <div className="absolute top-0 left-0 right-0 z-20 pointer-events-none p-2 sm:p-4 flex flex-col items-center">
@@ -117,19 +122,15 @@ export const TopHUD: React.FC<TopHUDProps> = ({
               {monster.name}
             </span>
             <span className="font-mono-tech font-bold text-[#00D9FF] text-[11px] sm:text-xs">
-              GROOVE {groovePercent}%
+              HEALTH {healthPercent}%
             </span>
           </div>
 
-          {/* Groove Meter Bar Track */}
+          {/* Monster health is the inverse of the existing groove progression. */}
           <div className="relative w-full h-3 rounded-full bg-[#080D18] border border-slate-800 overflow-hidden shadow-inner">
             <div
-              className={`h-full transition-all duration-300 rounded-full ${
-                stats.feverActive
-                  ? 'bg-gradient-to-r from-[#1687FF] via-[#00D9FF] to-[#A78BFA] animate-pulse'
-                  : 'bg-gradient-to-r from-[#1687FF] to-[#00D9FF]'
-              }`}
-              style={{ width: `${groovePercent}%` }}
+              className="h-full transition-all duration-300 rounded-full bg-gradient-to-r from-rose-600 via-orange-500 to-amber-300"
+              style={{ width: `${healthPercent}%` }}
             />
           </div>
 
@@ -265,14 +266,20 @@ export const TopHUD: React.FC<TopHUDProps> = ({
 
       {/* 4. Non-Pushing Floating Announcement Overlay */}
       {activePrompt && (
-        <div className="fixed top-36 left-1/2 -translate-x-1/2 px-5 py-2 rounded-xl bg-[#111C2D]/95 backdrop-blur-md border-2 border-[#1687FF] text-[#00D9FF] text-xs sm:text-sm font-heading font-bold tracking-wide shadow-2xl text-center pointer-events-none z-30 animate-pulse">
+        <div
+          className={`fixed top-36 left-1/2 -translate-x-1/2 rounded-xl bg-[#111C2D]/95 backdrop-blur-md text-[#00D9FF] font-heading font-bold tracking-wide shadow-2xl text-center pointer-events-none z-30 animate-pulse ${
+            isFinalPrompt
+              ? 'px-8 py-4 border-2 border-[#A78BFA] text-xl sm:text-3xl font-black tracking-widest shadow-[0_0_45px_rgba(168,85,247,0.65)]'
+              : 'px-5 py-2 border-2 border-[#1687FF] text-xs sm:text-sm'
+          }`}
+        >
           {activePrompt}
         </div>
       )}
 
       {/* 6. Super Attack Notification */}
       {superAttackNotification && (
-        <div className="mt-2 px-5 py-2 rounded-xl bg-[#111C2D]/95 backdrop-blur-md border-2 border-[#A78BFA] text-[#00D9FF] font-heading font-extrabold text-sm sm:text-base tracking-widest shadow-2xl animate-pulse">
+        <div className="mt-2 px-8 py-3 rounded-xl bg-[#111C2D]/95 backdrop-blur-md border-2 border-[#A78BFA] text-[#00D9FF] font-heading font-extrabold text-lg sm:text-2xl tracking-widest shadow-[0_0_35px_rgba(168,85,247,0.6)] animate-pulse">
           ⚡ {superAttackNotification} ⚡
         </div>
       )}

@@ -1,4 +1,4 @@
-import { FilesetResolver, HandLandmarker } from '@mediapipe/tasks-vision';
+import type { HandLandmarker as HandLandmarkerInstance } from '@mediapipe/tasks-vision';
 import { HandPoint, InstrumentId, TrackedHand } from '../types/game';
 import { INSTRUMENT_LIST } from '../game/instrumentsConfig';
 
@@ -26,20 +26,24 @@ export interface TrackingStateInfo {
 }
 
 export class HandTrackerService {
-  private handLandmarker: HandLandmarker | null = null;
+  private handLandmarker: HandLandmarkerInstance | null = null;
   private videoElement: HTMLVideoElement | null = null;
   private isModelLoading: boolean = false;
   private isModelReady: boolean = false;
+  private modelInitialization: Promise<boolean> | null = null;
+  private modelLoadGeneration: number = 0;
   private isProcessingFrame: boolean = false;
+  private isTracking: boolean = false;
   private animationFrameId: number | null = null;
+  private videoFrameCallbackId: number | null = null;
 
   private lastVideoTime: number = -1;
   private lastProcessedTimestampMs: number = 0;
-  private lastFrameClockMs: number = 0;
-
-  // Ultra-fast offscreen canvas downscaler (320x240) for 3x faster MediaPipe inference
-  private offscreenCanvas: HTMLCanvasElement | null = null;
-  private offscreenCtx: CanvasRenderingContext2D | null = null;
+  private lastDetectionStartMs: number = 0;
+  private detectionFrequencyHz: number = 30;
+  private lastDetectionDurationMs: number = 0;
+  private lastReportedState: TrackingStateInfo | null = null;
+  private gestureCooldownMs: number = 120;
 
   // Latest tracked hands reference for zero-overhead direct consumers
   public latestHands: TrackedHand[] = [];
@@ -92,26 +96,66 @@ export class HandTrackerService {
     this.reachBoost = enabled;
   }
 
-  public async initializeModel(onState?: (state: TrackingStateInfo) => void): Promise<boolean> {
+  public setGestureCooldown(milliseconds: number) {
+    if (!Number.isFinite(milliseconds) || milliseconds < 80 || milliseconds > 150) {
+      throw new RangeError('Gesture cooldown must be between 80 and 150 milliseconds.');
+    }
+    this.gestureCooldownMs = milliseconds;
+  }
+
+  public setDetectionFrequency(frequencyHz: number) {
+    if (!Number.isFinite(frequencyHz) || frequencyHz < 1 || frequencyHz > 60) {
+      throw new RangeError('Detection frequency must be between 1 and 60 Hz.');
+    }
+    this.detectionFrequencyHz = frequencyHz;
+  }
+
+  public getPerformanceMetrics() {
+    return {
+      isProcessing: this.isProcessingFrame,
+      detectionDurationMs: this.lastDetectionDurationMs,
+      frequencyHz: this.detectionFrequencyHz
+    };
+  }
+
+  public initializeModel(onState?: (state: TrackingStateInfo) => void): Promise<boolean> {
     if (onState) this.onStateChangeCallback = onState;
 
     if (this.isModelReady && this.handLandmarker) {
       this.reportStatus('camera_ready', 'MODEL READY • SHOW HAND', true);
-      return true;
+      return Promise.resolve(true);
     }
-    if (this.isModelLoading) {
-      return false;
-    }
+    if (this.modelInitialization) return this.modelInitialization;
+    this.modelInitialization = this.loadModel().finally(() => {
+      this.modelInitialization = null;
+    });
+    return this.modelInitialization;
+  }
 
+  private async loadModel(): Promise<boolean> {
     this.isModelLoading = true;
     this.reportStatus('loading_model', 'INITIALIZING AI SENSOR...', false);
 
-    // Timeout of 25 seconds for network / WASM compilation
-    const timeoutPromise = new Promise<never>((_, reject) =>
-      setTimeout(() => reject(new Error('Hand-tracking model loading timed out (25s)')), 25000)
-    );
+    const loadGeneration = ++this.modelLoadGeneration;
+    const isCurrentLoad = () => loadGeneration === this.modelLoadGeneration;
+    let initializationStep = 'loading the vision runtime';
+
+    let timeoutId: number | undefined;
+    const timeoutPromise = new Promise<never>((_, reject) => {
+      timeoutId = window.setTimeout(
+        () => reject(
+          new Error(
+            `Hand-tracking initialization timed out after 45 seconds while ${initializationStep}. Check the connection and retry.`
+          )
+        ),
+        45000
+      );
+    });
 
     const initWorker = async () => {
+      const { FilesetResolver, HandLandmarker } = await import('@mediapipe/tasks-vision');
+      initializationStep = 'resolving the local vision runtime';
+
       // 1. Resolve WASM assets: Local bundle first for instant offline exhibition speed, CDN fallback
       const wasmSources = [
         `${window.location.origin}/wasm`,
@@ -145,12 +189,16 @@ export class HandTrackerService {
         `${window.location.origin}/models/hand_landmarker.task`,
         'https://storage.googleapis.com/mediapipe-models/hand_landmarker/hand_landmarker/float16/1/hand_landmarker.task'
       ];
+      let lastModelError: unknown = null;
 
       for (const modelPath of modelSources) {
+        if (!isCurrentLoad()) return false;
+        initializationStep = `loading the hand model from ${modelPath}`;
         // Try GPU first
         try {
+          initializationStep = `initializing the hand model with GPU from ${modelPath}`;
           console.log('[AIRBEAT AI] Initializing HandLandmarker (GPU):', modelPath);
-          this.handLandmarker = await HandLandmarker.createFromOptions(vision, {
+          const detector = await HandLandmarker.createFromOptions(vision, {
             baseOptions: {
               modelAssetPath: modelPath,
               delegate: 'GPU'
@@ -161,14 +209,21 @@ export class HandTrackerService {
             minHandPresenceConfidence: 0.4,
             minTrackingConfidence: 0.4
           });
+          if (!isCurrentLoad()) {
+            detector.close();
+            return false;
+          }
+          this.handLandmarker = detector;
           console.log('[AIRBEAT AI] HandLandmarker initialized successfully (GPU)!');
           return true;
         } catch (gpuErr) {
+          if (!isCurrentLoad()) return false;
           console.warn('[AIRBEAT AI] GPU delegate failed, trying CPU...', gpuErr);
           // Try CPU fallback
           try {
+            initializationStep = `initializing the hand model with CPU from ${modelPath}`;
             console.log('[AIRBEAT AI] Initializing HandLandmarker (CPU):', modelPath);
-            this.handLandmarker = await HandLandmarker.createFromOptions(vision, {
+            const detector = await HandLandmarker.createFromOptions(vision, {
               baseOptions: {
                 modelAssetPath: modelPath,
                 delegate: 'CPU'
@@ -179,15 +234,23 @@ export class HandTrackerService {
               minHandPresenceConfidence: 0.4,
               minTrackingConfidence: 0.4
             });
+            if (!isCurrentLoad()) {
+              detector.close();
+              return false;
+            }
+            this.handLandmarker = detector;
             console.log('[AIRBEAT AI] HandLandmarker initialized successfully (CPU)!');
             return true;
           } catch (cpuErr) {
+            if (!isCurrentLoad()) return false;
+            lastModelError = cpuErr;
             console.warn('[AIRBEAT AI] CPU delegate failed for', modelPath, cpuErr);
           }
         }
       }
 
-      throw new Error('All model loading sources failed');
+      const detail = lastModelError instanceof Error ? lastModelError.message : String(lastModelError);
+      throw new Error(`All hand model sources failed. Last error: ${detail}`);
     };
 
     try {
@@ -200,9 +263,12 @@ export class HandTrackerService {
       console.error('[AIRBEAT AI] HandLandmarker failed:', err);
       this.isModelLoading = false;
       this.isModelReady = false;
+      this.modelLoadGeneration++;
       const errMsg = err instanceof Error ? err.message : 'Model loading error';
       this.reportStatus('tracking_error', 'TRACKING ERROR', false, 0, false, errMsg);
       return false;
+    } finally {
+      if (timeoutId !== undefined) window.clearTimeout(timeoutId);
     }
   }
 
@@ -214,15 +280,29 @@ export class HandTrackerService {
     isPinching: boolean = false,
     errorMessage?: string
   ) {
+    const nextState: TrackingStateInfo = {
+      status,
+      statusText,
+      isReady,
+      handsCount,
+      isPinching,
+      errorMessage
+    };
+    const previousState = this.lastReportedState;
+    if (
+      previousState &&
+      previousState.status === nextState.status &&
+      previousState.statusText === nextState.statusText &&
+      previousState.isReady === nextState.isReady &&
+      previousState.handsCount === nextState.handsCount &&
+      previousState.isPinching === nextState.isPinching &&
+      previousState.errorMessage === nextState.errorMessage
+    ) {
+      return;
+    }
+    this.lastReportedState = nextState;
     if (this.onStateChangeCallback) {
-      this.onStateChangeCallback({
-        status,
-        statusText,
-        isReady,
-        handsCount,
-        isPinching,
-        errorMessage
-      });
+      this.onStateChangeCallback(nextState);
     }
   }
 
@@ -232,26 +312,67 @@ export class HandTrackerService {
 
   public startTracking(onHands: (hands: TrackedHand[]) => void) {
     this.onHandsDetectedCallback = onHands;
-    if (this.animationFrameId === null) {
-      this.loop();
-    }
+    if (this.isTracking) return;
+    this.isTracking = true;
+    document.addEventListener('visibilitychange', this.handleVisibilityChange);
+    this.scheduleNextFrame();
   }
 
   public stopTracking() {
+    this.isTracking = false;
+    document.removeEventListener('visibilitychange', this.handleVisibilityChange);
     if (this.animationFrameId !== null) {
       cancelAnimationFrame(this.animationFrameId);
       this.animationFrameId = null;
     }
+    if (this.videoFrameCallbackId !== null) {
+      this.videoElement?.cancelVideoFrameCallback?.(this.videoFrameCallbackId);
+      this.videoFrameCallbackId = null;
+    }
     this.isProcessingFrame = false;
+    this.lastDetectionStartMs = 0;
     this.smoothedHands.clear();
     this.pinchStates.clear();
+    this.hoverDwellStates.clear();
+    this.motionHistory.clear();
     this.currentHoveredTarget = null;
     this.hoverHoldFrames = 0;
+    this.lastVideoTime = -1;
+    this.latestHands = [];
   }
 
-  private loop = () => {
-    this.processFrame();
-    this.animationFrameId = requestAnimationFrame(this.loop);
+  private scheduleNextFrame() {
+    if (!this.isTracking || document.hidden) return;
+    const video = this.videoElement;
+    if (video?.requestVideoFrameCallback) {
+      this.videoFrameCallbackId = video.requestVideoFrameCallback(() => {
+        this.videoFrameCallbackId = null;
+        this.processFrame();
+        this.scheduleNextFrame();
+      });
+      return;
+    }
+
+    this.animationFrameId = requestAnimationFrame(() => {
+      this.animationFrameId = null;
+      this.processFrame();
+      this.scheduleNextFrame();
+    });
+  };
+
+  private handleVisibilityChange = () => {
+    if (document.hidden) {
+      if (this.animationFrameId !== null) {
+        cancelAnimationFrame(this.animationFrameId);
+        this.animationFrameId = null;
+      }
+      if (this.videoFrameCallbackId !== null) {
+        this.videoElement?.cancelVideoFrameCallback?.(this.videoFrameCallbackId);
+        this.videoFrameCallbackId = null;
+      }
+      return;
+    }
+    this.scheduleNextFrame();
   };
 
   private processFrame() {
@@ -272,12 +393,12 @@ export class HandTrackerService {
       return;
     }
 
+    if (this.videoElement.currentTime === this.lastVideoTime) return;
+    this.lastVideoTime = this.videoElement.currentTime;
+
     const nowClock = performance.now();
-    // Throttle MediaPipe inference to save CPU/GPU and match webcam frame rate (~45-50 FPS max)
-    if (nowClock - this.lastFrameClockMs < 18) {
-      return;
-    }
-    this.lastFrameClockMs = nowClock;
+    if (nowClock - this.lastDetectionStartMs < 1000 / this.detectionFrequencyHz) return;
+    this.lastDetectionStartMs = nowClock;
 
     // Strictly monotonic timestamp required by MediaPipe
     let timestampMs = Math.round(nowClock);
@@ -287,16 +408,21 @@ export class HandTrackerService {
     this.lastProcessedTimestampMs = timestampMs;
 
     this.isProcessingFrame = true;
+    const detectionStartedAt = performance.now();
 
     try {
       const results = this.handLandmarker.detectForVideo(this.videoElement, timestampMs);
+      this.lastDetectionDurationMs = performance.now() - detectionStartedAt;
       this.isProcessingFrame = false;
 
       // Handle no hand detected
       if (!results || !results.landmarks || results.landmarks.length === 0) {
         this.reportStatus('no_hand', 'NO HAND DETECTED', true, 0, false);
         this.smoothedHands.clear();
+        this.hoverDwellStates.clear();
+        this.motionHistory.clear();
         this.currentHoveredTarget = null;
+        this.latestHands = [];
         if (this.onHandsDetectedCallback) {
           this.onHandsDetectedCallback([]);
         }
@@ -426,8 +552,6 @@ export class HandTrackerService {
         // Thresholds: pinched < 0.52 (forgiving for all finger sizes), released > 0.65
         const PINCH_START = 0.52;
         const PINCH_RELEASE = 0.65;
-        const COOLDOWN_MS = 240;
-
         const pState = this.pinchStates.get(h) || {
           isPinching: false,
           lastPinchTime: 0,
@@ -438,7 +562,10 @@ export class HandTrackerService {
         let isEdgePinch = false;
 
         if (!pState.isPinching) {
-          if (pinchRatio < PINCH_START && nowClock - pState.lastPinchTime > COOLDOWN_MS) {
+          if (
+            pinchRatio < PINCH_START &&
+            nowClock - pState.lastPinchTime > this.gestureCooldownMs
+          ) {
             pState.isPinching = true;
             pState.lastPinchTime = nowClock;
             isEdgePinch = true;
@@ -468,9 +595,8 @@ export class HandTrackerService {
             lastTriggerTime: dwell ? dwell.lastTriggerTime : 0
           };
         } else if (activeHovered) {
-          // Intentional hover dwell: charges up over 280ms
-          const DWELL_TIME_MS = 280;
-          if (nowClock - dwell.lastTriggerTime > 360) {
+          const DWELL_TIME_MS = 240;
+          if (nowClock - dwell.lastTriggerTime > this.gestureCooldownMs) {
             hoverProgress = Math.min(1, (nowClock - dwell.startTime) / DWELL_TIME_MS);
             if (hoverProgress >= 1 && !dwell.triggered) {
               isDwellTrigger = true;
@@ -520,8 +646,15 @@ export class HandTrackerService {
         ? 'pinch_detected'
         : 'hand_detected';
       const statusText = anyTriggered ? 'BEAT HIT! ⚡' : anyPinching ? 'PINCHING' : 'HAND ACTIVE';
+      const triggeredHand = trackedHands.find((hand) => hand.isTriggering);
+      const triggeredInstrument = triggeredHand?.hoveredInstrument
+        ? INSTRUMENT_LIST.find((instrument) => instrument.id === triggeredHand.hoveredInstrument)
+        : null;
+      const feedbackText = triggeredInstrument
+        ? `${triggeredInstrument.name} HIT! ⚡`
+        : statusText;
 
-      this.reportStatus(status, statusText, true, trackedHands.length, anyPinching || anyTriggered);
+      this.reportStatus(status, feedbackText, true, trackedHands.length, anyPinching || anyTriggered);
 
       if (this.onHandsDetectedCallback) {
         this.onHandsDetectedCallback(trackedHands);
@@ -560,6 +693,7 @@ export class HandTrackerService {
 
   public dispose() {
     this.stopTracking();
+    this.modelLoadGeneration++;
     if (this.handLandmarker) {
       try {
         this.handLandmarker.close();

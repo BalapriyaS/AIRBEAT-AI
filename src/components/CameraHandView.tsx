@@ -63,8 +63,8 @@ export const CameraHandView: React.FC<CameraHandViewProps> = ({
   const isDraggingRef = useRef<boolean>(false);
   const dragOffsetRef = useRef<{ x: number; y: number }>({ x: 0, y: 0 });
 
-  // Camera Size State (Defaulting to 'large' per user request, with quick toggle)
-  const [cameraSize, setCameraSize] = useState<'compact' | 'large' | 'xlarge'>('large');
+  // Start compact so the preview stays clear of the instrument pads.
+  const [cameraSize, setCameraSize] = useState<'compact' | 'large' | 'xlarge'>('compact');
 
   const toggleCameraSize = () => {
     setCameraSize((curr) => {
@@ -98,6 +98,7 @@ export const CameraHandView: React.FC<CameraHandViewProps> = ({
   // Initialize camera and MediaPipe (Runs ONCE on mount)
   useEffect(() => {
     let isMounted = true;
+    let unlockVideo: (() => void) | null = null;
 
     async function setupCameraAndAI() {
       try {
@@ -108,6 +109,7 @@ export const CameraHandView: React.FC<CameraHandViewProps> = ({
           video: {
             width: { ideal: 640 },
             height: { ideal: 480 },
+            frameRate: { ideal: 30, max: 30 },
             facingMode: 'user'
           },
           audio: false
@@ -133,8 +135,8 @@ export const CameraHandView: React.FC<CameraHandViewProps> = ({
           const startPlayback = async () => {
             try {
               await video.play();
-              setCameraStatus('active');
               handTracker.setVideoSource(video);
+              setCameraStatus('active');
               if (onCameraStatusChangeRef.current) onCameraStatusChangeRef.current(true);
             } catch (playErr) {
               console.warn('[AIRBEAT AI] video.play() waiting for interaction:', playErr);
@@ -150,9 +152,15 @@ export const CameraHandView: React.FC<CameraHandViewProps> = ({
           }
 
           // Interaction unlock safeguard for strict browser autoplay policies
-          const unlockVideo = () => {
+          unlockVideo = () => {
             if (video.paused) {
-              video.play().then(() => setCameraStatus('active')).catch(() => {});
+              video.play().then(() => {
+                handTracker.setVideoSource(video);
+                setCameraStatus('active');
+                if (onCameraStatusChangeRef.current) onCameraStatusChangeRef.current(true);
+              }).catch((playErr) => {
+                console.warn('[AIRBEAT AI] Webcam playback could not start:', playErr);
+              });
             }
           };
           window.addEventListener('pointerdown', unlockVideo, { once: true });
@@ -171,6 +179,11 @@ export const CameraHandView: React.FC<CameraHandViewProps> = ({
             if (!isMounted) return;
             onHandsDetectedRef.current(hands);
             renderHandOverlay(hands);
+            const triggeredHand = hands.find((hand) => hand.isTriggering);
+            const indexTip = triggeredHand?.landmarks[8];
+            if (indexTip) {
+              setLastPinchAnim({ x: indexTip.x, y: indexTip.y, time: Date.now() });
+            }
           });
         }
       } catch (err: unknown) {
@@ -202,6 +215,10 @@ export const CameraHandView: React.FC<CameraHandViewProps> = ({
     return () => {
       isMounted = false;
       handTracker.stopTracking();
+      if (unlockVideo) {
+        window.removeEventListener('pointerdown', unlockVideo);
+        window.removeEventListener('keydown', unlockVideo);
+      }
       if (streamRef.current) {
         streamRef.current.getTracks().forEach((track) => track.stop());
         streamRef.current = null;
@@ -349,7 +366,34 @@ export const CameraHandView: React.FC<CameraHandViewProps> = ({
     setCustomPosition(null);
   };
 
-  const handleRetry = () => {
+  const publishTrackingState = (state: TrackingStateInfo) => {
+    setTrackingState(state);
+    onTrackingStateChangeRef.current?.(state);
+  };
+
+  const handleTrackedHands = (hands: TrackedHand[]) => {
+    onHandsDetectedRef.current(hands);
+    renderHandOverlay(hands);
+    const triggeredHand = hands.find((hand) => hand.isTriggering);
+    const indexTip = triggeredHand?.landmarks[8];
+    if (indexTip) {
+      setLastPinchAnim({ x: indexTip.x, y: indexTip.y, time: Date.now() });
+    }
+  };
+
+  const handleRetry = async () => {
+    if (cameraStatus === 'active') {
+      publishTrackingState({
+        status: 'loading_model',
+        statusText: 'RETRYING HAND TRACKER...',
+        isReady: false,
+        handsCount: 0,
+        isPinching: false
+      });
+      const aiReady = await handTracker.initializeModel(publishTrackingState);
+      if (aiReady) handTracker.startTracking(handleTrackedHands);
+      return;
+    }
     window.location.reload();
   };
 
@@ -460,6 +504,24 @@ export const CameraHandView: React.FC<CameraHandViewProps> = ({
             </button>
           </div>
         </div>
+
+        {trackingState.status === 'tracking_error' && (
+          <div
+            role="alert"
+            className="absolute bottom-2 left-2 right-2 z-30 flex items-center justify-between gap-2 rounded-lg border border-rose-400/40 bg-slate-950/95 px-2.5 py-2 text-[10px] text-rose-200 shadow-lg"
+          >
+            <span className="min-w-0 flex-1 truncate" title={trackingState.errorMessage}>
+              Tracking failed: {trackingState.errorMessage || 'MediaPipe could not initialize.'}
+            </span>
+            <button
+              type="button"
+              onClick={handleRetry}
+              className="shrink-0 rounded bg-rose-500/20 px-2 py-1 font-semibold text-rose-100 hover:bg-rose-500/40"
+            >
+              Retry
+            </button>
+          </div>
+        )}
 
         {/* Pinch feedback ripple effect */}
         {lastPinchAnim && Date.now() - lastPinchAnim.time < 500 && (
